@@ -4,7 +4,6 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
 using PSADT.LibraryInterfaces;
-using Windows.Win32;
 using Windows.Win32.System.SystemInformation;
 
 namespace PSADT.DeviceManagement
@@ -79,9 +78,9 @@ namespace PSADT.DeviceManagement
                 }
             }
 
-            PInvoke.GetProductInfo(osVersion.dwMajorVersion, osVersion.dwMinorVersion, osVersion.wServicePackMajor, osVersion.wServicePackMinor, out OS_PRODUCT_TYPE edition);
+            Kernel32.GetProductInfo(osVersion.dwMajorVersion, osVersion.dwMinorVersion, osVersion.wServicePackMajor, osVersion.wServicePackMinor, out OS_PRODUCT_TYPE edition);
             Name = string.Format(((DescriptionAttribute[])typeof(WindowsOS).GetField(operatingSystem.ToString())!.GetCustomAttributes(typeof(DescriptionAttribute), false)).First().Description, editionId);
-            Version = new Version((int)osVersion.dwMajorVersion, (int)osVersion.dwMinorVersion, (int)osVersion.dwBuildNumber, ubr);
+            Version = new((int)osVersion.dwMajorVersion, (int)osVersion.dwMinorVersion, (int)osVersion.dwBuildNumber, ubr);
             Edition = edition.ToString();
             Architecture = RuntimeInformation.OSArchitecture;
             Is64BitOperatingSystem = Environment.Is64BitOperatingSystem;

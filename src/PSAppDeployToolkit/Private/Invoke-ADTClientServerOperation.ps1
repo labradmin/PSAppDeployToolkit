@@ -55,6 +55,15 @@ function Private:Invoke-ADTClientServerOperation
         [Parameter(Mandatory = $true, ParameterSetName = 'SendKeys')]
         [System.Management.Automation.SwitchParameter]$SendKeys,
 
+        [Parameter(Mandatory = $true, ParameterSetName = 'GetEnvironmentVariable')]
+        [System.Management.Automation.SwitchParameter]$GetEnvironmentVariable,
+
+        [Parameter(Mandatory = $true, ParameterSetName = 'SetEnvironmentVariable')]
+        [System.Management.Automation.SwitchParameter]$SetEnvironmentVariable,
+
+        [Parameter(Mandatory = $true, ParameterSetName = 'RemoveEnvironmentVariable')]
+        [System.Management.Automation.SwitchParameter]$RemoveEnvironmentVariable,
+
         [Parameter(Mandatory = $true, ParameterSetName = 'InitCloseAppsDialog')]
         [Parameter(Mandatory = $true, ParameterSetName = 'PromptToCloseApps')]
         [Parameter(Mandatory = $true, ParameterSetName = 'ProgressDialogOpen')]
@@ -70,6 +79,9 @@ function Private:Invoke-ADTClientServerOperation
         [Parameter(Mandatory = $true, ParameterSetName = 'MinimizeAllWindows')]
         [Parameter(Mandatory = $true, ParameterSetName = 'RestoreAllWindows')]
         [Parameter(Mandatory = $true, ParameterSetName = 'SendKeys')]
+        [Parameter(Mandatory = $true, ParameterSetName = 'GetEnvironmentVariable')]
+        [Parameter(Mandatory = $true, ParameterSetName = 'SetEnvironmentVariable')]
+        [Parameter(Mandatory = $true, ParameterSetName = 'RemoveEnvironmentVariable')]
         [ValidateNotNullOrEmpty()]
         [PSADT.Module.RunAsActiveUser]$User,
 
@@ -92,11 +104,11 @@ function Private:Invoke-ADTClientServerOperation
 
         [Parameter(Mandatory = $false, ParameterSetName = 'UpdateProgressDialog')]
         [ValidateNotNullOrEmpty()]
-        [System.String]$ProgressMessage = [NullString]::Value,
+        [System.String]$ProgressMessage = [System.Management.Automation.Language.NullString]::Value,
 
         [Parameter(Mandatory = $false, ParameterSetName = 'UpdateProgressDialog')]
         [ValidateNotNullOrEmpty()]
-        [System.String]$ProgressDetailMessage = [NullString]::Value,
+        [System.String]$ProgressDetailMessage = [System.Management.Automation.Language.NullString]::Value,
 
         [Parameter(Mandatory = $false, ParameterSetName = 'UpdateProgressDialog')]
         [ValidateNotNullOrEmpty()]
@@ -105,6 +117,16 @@ function Private:Invoke-ADTClientServerOperation
         [Parameter(Mandatory = $false, ParameterSetName = 'UpdateProgressDialog')]
         [ValidateNotNullOrEmpty()]
         [PSADT.UserInterface.Dialogs.DialogMessageAlignment]$MessageAlignment,
+
+        [Parameter(Mandatory = $true, ParameterSetName = 'GetEnvironmentVariable')]
+        [Parameter(Mandatory = $true, ParameterSetName = 'SetEnvironmentVariable')]
+        [Parameter(Mandatory = $true, ParameterSetName = 'RemoveEnvironmentVariable')]
+        [ValidateNotNullOrEmpty()]
+        [System.String]$Variable,
+
+        [Parameter(Mandatory = $true, ParameterSetName = 'SetEnvironmentVariable')]
+        [ValidateNotNullOrEmpty()]
+        [System.String]$Value,
 
         [Parameter(Mandatory = $true, ParameterSetName = 'ShowProgressDialog')]
         [Parameter(Mandatory = $true, ParameterSetName = 'ShowModalDialog')]
@@ -133,7 +155,7 @@ function Private:Invoke-ADTClientServerOperation
     if (($PSCmdlet.ParameterSetName -match '^(InitCloseAppsDialog|PromptToCloseApps|ProgressDialogOpen|ShowProgressDialog|UpdateProgressDialog|CloseProgressDialog|MinimizeAllWindows|RestoreAllWindows)$') -or
         [PSADT.UserInterface.Dialogs.DialogType]::CloseAppsDialog.Equals($DialogType) -or
         ((Test-ADTSessionActive) -and $User.Equals((Get-ADTEnvironmentTable).RunAsActiveUser) -and !$NoWait) -or
-        ($Script:ADT.ClientServerProcess -and $Script:ADT.ClientServerProcess.Username.Equals($User.NTAccount) -and !$NoWait))
+        ($Script:ADT.ClientServerProcess -and $Script:ADT.ClientServerProcess.RunAsActiveUser.Equals($User) -and !$NoWait))
     {
         # Instantiate a new ClientServerProcess object if one's not already present.
         if (!$Script:ADT.ClientServerProcess)
@@ -150,7 +172,7 @@ function Private:Invoke-ADTClientServerOperation
 
             # Instantiate a new ClientServerProcess object as required, then add the necessary callback.
             Write-ADTLogEntry -Message 'Instantiating user client/server process.'
-            $Script:ADT.ClientServerProcess = [PSADT.ClientServer.ServerInstance]::new($User.NTAccount)
+            $Script:ADT.ClientServerProcess = [PSADT.ClientServer.ServerInstance]::new($User)
             try
             {
                 $Script:ADT.ClientServerProcess.Open()
@@ -215,6 +237,14 @@ function Private:Invoke-ADTClientServerOperation
             elseif ($PSCmdlet.ParameterSetName.Equals('UpdateProgressDialog'))
             {
                 $result = $Script:ADT.ClientServerProcess.UpdateProgressDialog($ProgressMessage, $ProgressDetailMessage, $ProgressPercentage, $MessageAlignment)
+            }
+            elseif ($PSCmdlet.ParameterSetName.Equals('GetEnvironmentVariable') -or $PSCmdlet.ParameterSetName.Equals('RemoveEnvironmentVariable'))
+            {
+                $result = $Script:ADT.ClientServerProcess.($PSCmdlet.ParameterSetName)($Variable)
+            }
+            elseif ($PSCmdlet.ParameterSetName.Equals('SetEnvironmentVariable'))
+            {
+                $result = $Script:ADT.ClientServerProcess.SetEnvironmentVariable($Variable, $Value)
             }
             elseif ($PSBoundParameters.ContainsKey('Options'))
             {
@@ -284,7 +314,9 @@ function Private:Invoke-ADTClientServerOperation
         # Set up the parameters for Start-ADTProcessAsUser.
         $sapauParams = @{
             Username = $User.NTAccount
+            UseHighestAvailableToken = $true
             ArgumentList = $("/$($PSCmdlet.ParameterSetName)"; if ($PSBoundParameters.Count -gt 0) { $PSBoundParameters.GetEnumerator() | & { process { "-$($_.Key)"; $_.Value } } })
+            WorkingDirectory = [System.Environment]::SystemDirectory
             MsiExecWaitTime = 1
             CreateNoWindow = $true
             InformationAction = [System.Management.Automation.ActionPreference]::SilentlyContinue
@@ -372,8 +404,8 @@ function Private:Invoke-ADTClientServerOperation
     }
 
     # Only write a result out for modes where we're expecting a result.
-    if ($PSCmdlet.ParameterSetName -match '^(InitCloseAppsDialog|ProgressDialogOpen|ShowModalDialog|GetProcessWindowInfo|GetUserNotificationState|GetForegroundWindowProcessId)$')
+    if ($PSCmdlet.ParameterSetName -match '^(InitCloseAppsDialog|ProgressDialogOpen|ShowModalDialog|GetProcessWindowInfo|GetUserNotificationState|GetForegroundWindowProcessId|GetEnvironmentVariable)$')
     {
-        $PSCmdlet.WriteObject($result, $false)
+        return $result
     }
 }

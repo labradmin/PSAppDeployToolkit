@@ -93,7 +93,7 @@ function Show-ADTInstallationWelcome
         Specifies that the user can move the dialog on the screen.
 
     .PARAMETER CustomText
-        Specify whether to display a custom message specified in the `strings.psd1` file. Custom message must be populated for each language section in the `strings.psd1` file.
+        Specify whether to display a custom message as specified in the `strings.psd1` file below the main preamble. Custom message must be populated for each language section in the `strings.psd1` file.
 
     .PARAMETER CheckDiskSpace
         Specify whether to check if there is enough disk space for the deployment to proceed.
@@ -694,13 +694,13 @@ function Show-ADTInstallationWelcome
         # Add in parameters we need as mandatory when there's no active ADTSession.
         $paramDictionary.Add('Title', [System.Management.Automation.RuntimeDefinedParameter]::new(
                 'Title', [System.String], $(
-                    [System.Management.Automation.ParameterAttribute]@{ Mandatory = !$adtSession; HelpMessage = "Title of the prompt." }
+                    [System.Management.Automation.ParameterAttribute]@{ Mandatory = !$adtSession; HelpMessage = "Title of the prompt. Optionally used to override the active DeploymentSession's `InstallTitle` value." }
                     [System.Management.Automation.ValidateNotNullOrEmptyAttribute]::new()
                 )
             ))
         $paramDictionary.Add('Subtitle', [System.Management.Automation.RuntimeDefinedParameter]::new(
                 'Subtitle', [System.String], $(
-                    [System.Management.Automation.ParameterAttribute]@{ Mandatory = !$adtSession -and ($adtConfig.UI.DialogStyle -eq 'Fluent'); HelpMessage = "Subtitle of the prompt." }
+                    [System.Management.Automation.ParameterAttribute]@{ Mandatory = !$adtSession -and ($adtConfig.UI.DialogStyle -eq 'Fluent'); HelpMessage = "Subtitle of the prompt. Optionally used to override the subtitle defined in the `strings.psd1` file." }
                     [System.Management.Automation.ValidateNotNullOrEmptyAttribute]::new()
                 )
             ))
@@ -786,7 +786,8 @@ function Show-ADTInstallationWelcome
                 {
                     throw
                 }
-                Write-ADTLogEntry -Message "The client/server process was terminated unexpectedly. Retrying [$((++(Get-Variable -Name retries).Value))/3] times..."
+                Write-ADTLogEntry -Message "The client/server process was terminated unexpectedly.`n$(Resolve-ADTErrorRecord -ErrorRecord $_)" -Severity Error
+                Write-ADTLogEntry -Message "Retrying user client/server process again [$((++(Get-Variable -Name retries).Value))/3] times..."
                 (Get-Variable -Name initialized).Value = $false
                 return "TerminatedTryAgain"
             }
@@ -835,16 +836,10 @@ function Show-ADTInstallationWelcome
                 }
 
                 # Bypass if no one's logged on to answer the dialog.
-                if (!$Silent -and !($runAsActiveUser = Get-ADTClientServerUser))
+                if (!$Silent -and !($runAsActiveUser = Get-ADTClientServerUser -AllowSystemFallback))
                 {
                     Write-ADTLogEntry -Message "Running $($MyInvocation.MyCommand.Name) silently as there is no active user logged onto the system."
                     $Silent = $true
-                }
-
-                # If using Zero-Config MSI Deployment, append any executables found in the MSI to the CloseProcesses list
-                if ($adtSession -and ($msiExecutables = $adtSession.GetDefaultMsiExecutablesList()))
-                {
-                    $CloseProcesses = $(if ($CloseProcesses) { $CloseProcesses }; $msiExecutables)
                 }
 
                 # Check disk space requirements if specified
@@ -982,6 +977,7 @@ function Show-ADTInstallationWelcome
                         AppIconDarkImage = $adtConfig.Assets.LogoDark
                         AppBannerImage = $adtConfig.Assets.Banner
                         DialogTopMost = !$NotTopMost
+                        Language = $Script:ADT.Language
                         MinimizeWindows = !!$MinimizeWindows
                         DialogExpiryDuration = [System.TimeSpan]::FromSeconds($adtConfig.UI.DefaultTimeout)
                         Strings = $adtStrings.CloseAppsPrompt
@@ -1124,17 +1120,17 @@ function Show-ADTInstallationWelcome
                             Write-ADTLogEntry -Message 'The user selected to force the application(s) to close...'
                             if (($runningApps = if ($CloseProcesses) { Get-ADTRunningProcesses -ProcessObjects $CloseProcesses -InformationAction Ignore }))
                             {
-                                if ($PromptToSave)
-                                {
-                                    Invoke-ADTClientServerOperation -PromptToCloseApps -User $runAsActiveUser -PromptToCloseTimeout ([System.TimeSpan]::FromSeconds($adtConfig.UI.PromptToSaveTimeout))
-                                }
-                                else
+                                if (!$PromptToSave)
                                 {
                                     foreach ($runningApp in $runningApps)
                                     {
                                         Write-ADTLogEntry -Message "Stopping process [$($runningApp.Process.ProcessName)]..."
                                         Stop-Process -Name $runningApp.Process.ProcessName -Force -ErrorAction Ignore
                                     }
+                                }
+                                else
+                                {
+                                    Invoke-ADTClientServerOperation -PromptToCloseApps -User $runAsActiveUser -PromptToCloseTimeout ([System.TimeSpan]::FromSeconds($adtConfig.UI.PromptToSaveTimeout))
                                 }
 
                                 # Test whether apps are still running. If they are still running, the Welcome Window will be displayed again after 5 seconds.
@@ -1222,7 +1218,6 @@ function Show-ADTInstallationWelcome
                 # If block execution switch is true, call the function to block execution of these processes.
                 if ($BlockExecution -and $CloseProcesses)
                 {
-                    Write-ADTLogEntry -Message '[-BlockExecution] parameter specified.'
                     $baaeParams = @{ ProcessName = $CloseProcesses.Name }
                     if ($PSBoundParameters.ContainsKey('WindowLocation'))
                     {

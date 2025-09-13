@@ -121,14 +121,14 @@ function Show-ADTInstallationProgress
         # Add in parameters we need as mandatory when there's no active ADTSession.
         $paramDictionary.Add('Title', [System.Management.Automation.RuntimeDefinedParameter]::new(
                 'Title', [System.String], $(
-                    [System.Management.Automation.ParameterAttribute]@{ Mandatory = !$adtSession; HelpMessage = 'The title of the window to be displayed. The default is the derived value from "$($adtSession.InstallTitle)".' }
+                    [System.Management.Automation.ParameterAttribute]@{ Mandatory = !$adtSession; HelpMessage = "The title of the window to be displayed. Optionally used to override the active DeploymentSession's `InstallTitle` value." }
                     [System.Management.Automation.AliasAttribute]::new('WindowTitle')
                     [System.Management.Automation.ValidateNotNullOrEmptyAttribute]::new()
                 )
             ))
         $paramDictionary.Add('Subtitle', [System.Management.Automation.RuntimeDefinedParameter]::new(
                 'Subtitle', [System.String], $(
-                    [System.Management.Automation.ParameterAttribute]@{ Mandatory = !$adtSession -and ($adtConfig.UI.DialogStyle -eq 'Fluent'); HelpMessage = 'The subtitle of the window to be displayed with a fluent progress window. The default is the derived value from "$($adtSession.DeploymentType)".' }
+                    [System.Management.Automation.ParameterAttribute]@{ Mandatory = !$adtSession -and ($adtConfig.UI.DialogStyle -eq 'Fluent'); HelpMessage = "The subtitle of the window to be displayed with a fluent progress window. Optionally used to override the subtitle defined in the `strings.psd1` file." }
                     [System.Management.Automation.AliasAttribute]::new('WindowSubtitle')
                     [System.Management.Automation.ValidateNotNullOrEmptyAttribute]::new()
                 )
@@ -184,7 +184,7 @@ function Show-ADTInstallationProgress
         }
 
         # Bypass if no one's logged on to answer the dialog.
-        if (!($runAsActiveUser = Get-ADTClientServerUser))
+        if (!($runAsActiveUser = Get-ADTClientServerUser -AllowSystemFallback))
         {
             Write-ADTLogEntry -Message "Bypassing $($MyInvocation.MyCommand.Name) as there is no active user logged onto the system."
             return
@@ -222,6 +222,7 @@ function Show-ADTInstallationProgress
                         AppIconDarkImage = $adtConfig.Assets.LogoDark
                         AppBannerImage = $adtConfig.Assets.Banner
                         DialogTopMost = !$NotTopMost
+                        Language = $Script:ADT.Language
                         ProgressMessageText = $PSBoundParameters.StatusMessage
                         ProgressDetailMessageText = $PSBoundParameters.StatusMessageDetail
                     }
@@ -252,14 +253,14 @@ function Show-ADTInstallationProgress
                     [PSADT.UserInterface.DialogOptions.ProgressDialogOptions]$dialogOptions = $dialogOptions
 
                     # Create the new progress dialog.
-                    Write-ADTLogEntry -Message "Creating the progress dialog in a separate thread with message: [$($PSBoundParameters.StatusMessage)]."
+                    Write-ADTLogEntry -Message "Creating the progress dialog in a separate thread with $([System.String]::Join(', ', ('StatusMessage', 'StatusMessageDetail', 'StatusBarPercentage').ForEach({ if ($PSBoundParameters.ContainsKey($_)) { "[$($_): $($PSBoundParameters.$_)]" } })))."
                     Invoke-ADTClientServerOperation -ShowProgressDialog -User $runAsActiveUser -DialogStyle $adtConfig.UI.DialogStyle -Options $dialogOptions
                     Add-ADTModuleCallback -Hookpoint OnFinish -Callback $Script:CommandTable.'Close-ADTInstallationProgress'
                 }
                 else
                 {
                     # Update the dialog as required.
-                    Write-ADTLogEntry -Message "Updating the progress dialog with message: [$($PSBoundParameters.StatusMessage)]."
+                    Write-ADTLogEntry -Message "Updating the progress dialog with $([System.String]::Join(', ', ('StatusMessage', 'StatusMessageDetail', 'StatusBarPercentage').ForEach({ if ($PSBoundParameters.ContainsKey($_)) { "[$($_): $($PSBoundParameters.$_)]" } })))."
                     $iacsoParams = @{
                         UpdateProgressDialog = $true
                         User = $runAsActiveUser

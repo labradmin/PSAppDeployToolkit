@@ -290,7 +290,7 @@ namespace PSADT.UserInterface
         /// <param name="TopMost">A value indicating whether the message box should appear as a topmost window. <see langword="true"/> to make the message box topmost; otherwise, <see langword="false"/>.</param>
         /// <param name="Timeout">Optional timeout for the message box. If specified, the message box will automatically close after the given duration.</param>
         /// <returns>A <see cref="MsgBoxResult"/> value indicating the button clicked by the user.</returns>
-        internal static DialogBoxResult ShowDialogBox(string Title, string Prompt, DialogBoxButtons Buttons, DialogBoxDefaultButton DefaultButton, DialogBoxIcon Icon, bool TopMost, TimeSpan Timeout) => (DialogBoxResult)ShowDialogBox(Title, Prompt, (MESSAGEBOX_STYLE)Buttons | (MESSAGEBOX_STYLE)Icon | (MESSAGEBOX_STYLE)DefaultButton | (TopMost ? MESSAGEBOX_STYLE.MB_SYSTEMMODAL | MESSAGEBOX_STYLE.MB_TOPMOST | MESSAGEBOX_STYLE.MB_SETFOREGROUND : 0), Timeout);
+        internal static DialogBoxResult ShowDialogBox(string Title, string Prompt, DialogBoxButtons Buttons, DialogBoxDefaultButton DefaultButton, DialogBoxIcon Icon, bool TopMost, TimeSpan Timeout) => (DialogBoxResult)ShowDialogBox(Title, Prompt, (MESSAGEBOX_STYLE)Buttons | (MESSAGEBOX_STYLE)Icon | (MESSAGEBOX_STYLE)DefaultButton | MESSAGEBOX_STYLE.MB_TASKMODAL | MESSAGEBOX_STYLE.MB_SETFOREGROUND | (TopMost ? MESSAGEBOX_STYLE.MB_SYSTEMMODAL | MESSAGEBOX_STYLE.MB_TOPMOST : 0), Timeout);
 
         /// <summary>
         /// Displays a message box with the specified prompt, buttons, and title.
@@ -323,7 +323,11 @@ namespace PSADT.UserInterface
         /// <returns>A <see cref="System.Windows.Forms.DialogResult"/> value indicating the result of the dialog interaction. For
         /// example, <see cref="System.Windows.Forms.DialogResult.OK"/> if the user confirmed, or <see
         /// cref="System.Windows.Forms.DialogResult.Cancel"/> if the user canceled.</returns>
-        internal static System.Windows.Forms.DialogResult ShowHelpConsole(HelpConsoleOptions options) => InvokeDialogAction<System.Windows.Forms.DialogResult>(() => new Dialogs.Classic.HelpConsole(options).ShowDialog());
+        internal static System.Windows.Forms.DialogResult ShowHelpConsole(HelpConsoleOptions options) => InvokeDialogAction<System.Windows.Forms.DialogResult>(() =>
+        {
+            using Dialogs.Classic.HelpConsole helpConsole = new(options);
+            return helpConsole.ShowDialog();
+        });
 
         /// <summary>
         /// Initializes the WPF application and invokes the specified action on the UI thread.
@@ -333,7 +337,7 @@ namespace PSADT.UserInterface
             // Initialize the WPF application if necessary, otherwise just invoke the callback.
             if (!appInitialized.IsSet)
             {
-                appThread = new Thread(() =>
+                appThread = new(() =>
                 {
                     app = new System.Windows.Application { ShutdownMode = System.Windows.ShutdownMode.OnExplicitShutdown };
                     app.Startup += (_, _) => appInitialized.Set();

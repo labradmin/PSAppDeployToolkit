@@ -268,14 +268,8 @@ Add-BuildTask ValidateRequirements {
 
 # Synopsis: Compile our defined C# solutions.
 Add-BuildTask DotNetBuild {
-    # Find Visual Studio on the current device.
-    Write-Build White '      Compiling C# projects...'
-    if (!($msbuildPath = & "$([System.Environment]::GetFolderPath('ProgramFilesX86'))\Microsoft Visual Studio\Installer\vswhere.exe" -requires Microsoft.Component.MSBuild -find MSBuild\Current\Bin\MSBuild.exe))
-    {
-        throw 'msbuild.exe command not found. Ensure Visual Studio is installed on this system.'
-    }
-
     # Process each build item.
+    Write-Build White '      Compiling C# projects...'
     Write-Build Gray '        Determining C# solutions requiring compilation...'
     foreach ($buildItem in $Script:buildItems)
     {
@@ -328,7 +322,7 @@ Add-BuildTask DotNetBuild {
         Write-Build Gray "            Building $(($solutionPath = [System.IO.Path]::Combine($Script:RepoRootPath, $buildItem.SolutionPath)))..."
         foreach ($buildType in ($buildConfigs | Select-Object -Unique))
         {
-            & $msbuildPath $solutionPath -target:Rebuild -restore -p:configuration=$buildType -p:platform="Any CPU" -nodeReuse:false -m -verbosity:minimal
+            dotnet.exe msbuild $solutionPath -target:"Rebuild,VSTest" -restore -p:configuration=$buildType -p:platform="Any CPU" -nodeReuse:false -m
             if ($LASTEXITCODE) { throw "Failed to build solution `"$($buildItem.SolutionPath -replace '^.+\\')`". Exit code: $LASTEXITCODE" }
 
             # Copy the debug configuration into the module's folder within the repo. The release copy will come later on directly into the artifact.
@@ -692,7 +686,7 @@ Add-BuildTask AssetCopy -Before Build {
     Copy-Item -Path "$Script:ModuleSourcePath\*" -Destination $Script:BuildModuleRoot -Exclude "$($Script:ModuleName).ps*1" -Recurse
     foreach ($buildItem in $Script:buildItems)
     {
-        $sourcePath = [System.IO.Path]::Combine($Script:RepoRootPath, $buildItem.SolutionPath.Replace('.slnx', ''), 'bin\Release\net472\*')
+        $sourcePath = [System.IO.Path]::Combine($Script:RepoRootPath, $buildItem.BinaryPath.Replace('Debug', 'Release'), '*')
         $buildItem.OutputPath.Replace("src\PSAppDeployToolkit\", $null) | ForEach-Object {
             $destPath = [System.IO.Path]::Combine($Script:BuildModuleRoot, $_)
             Write-Build Gray "        Copying from $sourcePath to $destPath..."
@@ -814,7 +808,7 @@ Add-BuildTask Build {
     Write-Build Gray '        ...PDB removal completed.'
 
     # Sign our files if we're running on a branch enabled for code-signing.
-    if (($canSign = ($env:GITHUB_ACTIONS -eq 'true') -and ($env:GITHUB_REF_NAME -match '^(main|develop|4\.0\.x)$')))
+    if (($canSign = ($env:GITHUB_ACTIONS -eq 'true') -and ($env:GITHUB_REF_NAME -match '^(main|develop|4\.1\.x)$')))
     {
         if (!(Get-Command -Name 'azuresigntool' -ErrorAction Ignore))
         {

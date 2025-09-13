@@ -188,6 +188,7 @@ function Private:New-ADTEnvironmentTable
     $variables.Add('IsServerOS', $variables.envOSProductType -eq 3)
     $variables.Add('IsDomainControllerOS', $variables.envOSProductType -eq 2)
     $variables.Add('IsWorkstationOS', $variables.envOSProductType -eq 1)
+    $variables.Add('IsTerminalServer', $osInfo.IsTerminalServer)
     $variables.Add('IsMultiSessionOS', $osInfo.IsWorkstationEnterpriseMultiSessionOS)
     $variables.Add('envOSProductTypeName', [Microsoft.PowerShell.Commands.ProductType]$variables.envOSProductType)
 
@@ -297,13 +298,13 @@ function Private:New-ADTEnvironmentTable
     $variables.Add('SessionZero', $variables.IsLocalSystemAccount -or $variables.IsLocalServiceAccount -or $variables.IsNetworkServiceAccount -or $variables.IsServiceAccount)
 
     ## Variables: Logged on user information
-    $variables.Add('LoggedOnUserSessions', (Get-ADTLoggedOnUser 4>$null))
+    $variables.Add('LoggedOnUserSessions', [System.Collections.Generic.IReadOnlyList[PSADT.TerminalServices.SessionInfo]][System.Collections.ObjectModel.ReadOnlyCollection[PSADT.TerminalServices.SessionInfo]][PSADT.TerminalServices.SessionInfo[]](Get-ADTLoggedOnUser 4>$null))
     if ($variables.LoggedOnUserSessions)
     {
         $variables.Add('usersLoggedOn', [System.Collections.Generic.IReadOnlyList[System.Security.Principal.NTAccount]][System.Collections.ObjectModel.ReadOnlyCollection[System.Security.Principal.NTAccount]][System.Security.Principal.NTAccount[]]$variables.LoggedOnUserSessions.NTAccount)
-        $variables.Add('CurrentLoggedOnUserSession', ($variables.LoggedOnUserSessions | & { process { if ($_.IsCurrentSession) { return $_ } } } | Select-Object -First 1))
-        $variables.Add('CurrentConsoleUserSession', ($variables.LoggedOnUserSessions | & { process { if ($_.IsConsoleSession) { return $_ } } } | Select-Object -First 1))
-        $variables.Add('LoggedOnUserSessionsText', ($variables.LoggedOnUserSessions | Format-List | Out-String -Width ([System.Int32]::MaxValue)).Trim())
+        $variables.Add('CurrentLoggedOnUserSession', ($($variables.LoggedOnUserSessions) | & { process { if ($_.IsCurrentSession) { return $_ } } } | Select-Object -First 1))
+        $variables.Add('CurrentConsoleUserSession', ($($variables.LoggedOnUserSessions) | & { process { if ($_.IsConsoleSession) { return $_ } } } | Select-Object -First 1))
+        $variables.Add('LoggedOnUserSessionsText', ($($variables.LoggedOnUserSessions) | Format-List | Out-String -Width ([System.Int32]::MaxValue)).Trim())
         $variables.Add('RunAsActiveUser', (Get-ADTRunAsActiveUser -UserSessionInfo $variables.LoggedOnUserSessions 4>$null))
     }
     else
@@ -322,7 +323,7 @@ function Private:New-ADTEnvironmentTable
 
     ## Variables: Invalid FileName Characters
     $variables.Add('invalidFileNameChars', [System.Collections.Generic.IReadOnlyList[System.Char]][System.Collections.ObjectModel.ReadOnlyCollection[System.Char]][System.IO.Path]::GetInvalidFileNameChars())
-    $variables.Add('invalidFileNameCharsRegExPattern', [System.Text.RegularExpressions.Regex]::new("[$([System.Text.RegularExpressions.Regex]::Escape([System.String]::Join([System.String]::Empty, $variables.invalidFileNameChars)))]", [System.Text.RegularExpressions.RegexOptions]::Compiled))
+    $variables.Add('invalidFileNameCharsRegExPattern', [System.Text.RegularExpressions.Regex]::new("[$([System.Text.RegularExpressions.Regex]::Escape([System.String]::Join([System.Management.Automation.Language.NullString]::Value, $variables.invalidFileNameChars)))]", [System.Text.RegularExpressions.RegexOptions]::Compiled))
 
     ## Variables: RegEx Patterns
     $variables.Add('MSIProductCodeRegExPattern', '^(\{{0,1}([0-9a-fA-F]){8}-([0-9a-fA-F]){4}-([0-9a-fA-F]){4}-([0-9a-fA-F]){4}-([0-9a-fA-F]){12}\}{0,1})$')

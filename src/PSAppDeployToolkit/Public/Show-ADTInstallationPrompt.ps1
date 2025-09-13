@@ -69,7 +69,18 @@ function Show-ADTInstallationPrompt
         This function does not generate any output.
 
     .EXAMPLE
-        Show-ADTInstallationPrompt -Message 'Do you want to proceed with the installation?' -ButtonLeftText 'Yes' -ButtonRightText 'No'
+        ```powershell
+        $result = Show-ADTInstallationPrompt -Message 'Do you want to proceed with the installation?' -ButtonLeftText Yes -ButtonRightText No
+        switch ($result)
+        {
+            Yes {
+                Write-ADTLogEntry "User clicked the [Yes] button."
+            }
+            No {
+                Write-ADTLogEntry "User clicked the [No] button."
+            }
+        }
+        ```
 
     .EXAMPLE
         Show-ADTInstallationPrompt -Title 'Funny Prompt' -Message 'How are you feeling today?' -ButtonLeftText 'Good' -ButtonRightText 'Bad' -ButtonMiddleText 'Indifferent'
@@ -164,13 +175,13 @@ function Show-ADTInstallationPrompt
         # Add in parameters we need as mandatory when there's no active ADTSession.
         $paramDictionary.Add('Title', [System.Management.Automation.RuntimeDefinedParameter]::new(
                 'Title', [System.String], $(
-                    [System.Management.Automation.ParameterAttribute]@{ Mandatory = !$adtSession; HelpMessage = 'Title of the prompt.' }
+                    [System.Management.Automation.ParameterAttribute]@{ Mandatory = !$adtSession; HelpMessage = "Title of the prompt. Optionally used to override the active DeploymentSession's `InstallTitle` value." }
                     [System.Management.Automation.ValidateNotNullOrEmptyAttribute]::new()
                 )
             ))
         $paramDictionary.Add('Subtitle', [System.Management.Automation.RuntimeDefinedParameter]::new(
                 'Subtitle', [System.String], $(
-                    [System.Management.Automation.ParameterAttribute]@{ Mandatory = !$adtSession; HelpMessage = 'Subtitle of the prompt.' }
+                    [System.Management.Automation.ParameterAttribute]@{ Mandatory = !$adtSession; HelpMessage = "Subtitle of the prompt. Optionally used to override the subtitle defined in the `strings.psd1` file." }
                     [System.Management.Automation.ValidateNotNullOrEmptyAttribute]::new()
                 )
             ))
@@ -252,7 +263,7 @@ function Show-ADTInstallationPrompt
                 }
 
                 # Bypass if no one's logged on to answer the dialog.
-                if (!($runAsActiveUser = Get-ADTClientServerUser))
+                if (!($runAsActiveUser = Get-ADTClientServerUser -AllowSystemFallback))
                 {
                     Write-ADTLogEntry -Message "Bypassing $($MyInvocation.MyCommand.Name) as there is no active user logged onto the system."
                     return
@@ -266,6 +277,7 @@ function Show-ADTInstallationPrompt
                     AppIconDarkImage = $adtConfig.Assets.LogoDark
                     AppBannerImage = $adtConfig.Assets.Banner
                     DialogTopMost = !$NotTopMost
+                    Language = $Script:ADT.Language
                     MinimizeWindows = !!$MinimizeWindows
                     DialogExpiryDuration = $PSBoundParameters.Timeout
                     MessageText = $Message
@@ -327,7 +339,7 @@ function Show-ADTInstallationPrompt
                 if ($NoWait)
                 {
                     Write-ADTLogEntry -Message "Displaying custom installation prompt asynchronously to [$($runAsActiveUser.NTAccount)] with message: [$Message]."
-                    Invoke-ADTClientServerOperation -ShowModalDialog -User $runAsActiveUser -DialogType $PSCmdlet.ParameterSetName.Replace('Show', $null) -DialogStyle $adtConfig.UI.DialogStyle -Options $dialogOptions -NoWait
+                    Invoke-ADTClientServerOperation -ShowModalDialog -User $runAsActiveUser -DialogType $PSCmdlet.ParameterSetName.Replace('Show', [System.Management.Automation.Language.NullString]::Value) -DialogStyle $adtConfig.UI.DialogStyle -Options $dialogOptions -NoWait
                     return
                 }
 
@@ -343,7 +355,7 @@ function Show-ADTInstallationPrompt
                 {
                     $result = try
                     {
-                        Invoke-ADTClientServerOperation -ShowModalDialog -User $runAsActiveUser -DialogType $PSCmdlet.ParameterSetName.Replace('Show', $null) -DialogStyle $adtConfig.UI.DialogStyle -Options $dialogOptions
+                        Invoke-ADTClientServerOperation -ShowModalDialog -User $runAsActiveUser -DialogType $PSCmdlet.ParameterSetName.Replace('Show', [System.Management.Automation.Language.NullString]::Value) -DialogStyle $adtConfig.UI.DialogStyle -Options $dialogOptions
                     }
                     catch [System.ApplicationException]
                     {
@@ -351,7 +363,8 @@ function Show-ADTInstallationPrompt
                         {
                             throw
                         }
-                        Write-ADTLogEntry -Message "The client/server process was terminated unexpectedly. Retrying [$((++$retries))/3] times..."
+                        Write-ADTLogEntry -Message "The client/server process was terminated unexpectedly.`n$(Resolve-ADTErrorRecord -ErrorRecord $_)" -Severity Error
+                        Write-ADTLogEntry -Message "Retrying user client/server process again [$((++$retries))/3] times..."
                         "TerminatedTryAgain"
                     }
                 }

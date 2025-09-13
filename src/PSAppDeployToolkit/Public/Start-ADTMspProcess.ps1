@@ -21,11 +21,14 @@ function Start-ADTMspProcess
     .PARAMETER AdditionalArgumentList
         Additional parameters.
 
-    .PARAMETER Username
-        A username to invoke the process as. Only supported while running as the SYSTEM account.
+    .PARAMETER RunAsActiveUser
+        A RunAsActiveUser object to invoke the process as.
 
     .PARAMETER UseLinkedAdminToken
         Use a user's linked administrative token while running the process under their context.
+
+    .PARAMETER UseHighestAvailableToken
+        Use a user's linked administrative token if it's available while running the process under their context.
 
     .PARAMETER InheritEnvironmentVariables
         Specifies whether the process running as a user should inherit the SYSTEM account's environment variables.
@@ -68,7 +71,7 @@ function Start-ADTMspProcess
         https://psappdeploytoolkit.com/docs/reference/functions/Start-ADTMspProcess
     #>
 
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName = 'None')]
     [OutputType([System.Int32])]
     param
     (
@@ -86,14 +89,17 @@ function Start-ADTMspProcess
         [ValidateNotNullOrEmpty()]
         [System.String[]]$AdditionalArgumentList,
 
-        [Parameter(Mandatory = $true, ParameterSetName = 'Username')]
+        [Parameter(Mandatory = $true, ParameterSetName = 'RunAsActiveUser')]
         [ValidateNotNullOrEmpty()]
-        [System.Security.Principal.NTAccount]$Username,
+        [PSADT.Module.RunAsActiveUser]$RunAsActiveUser,
 
-        [Parameter(Mandatory = $false, ParameterSetName = 'Username')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'RunAsActiveUser')]
         [System.Management.Automation.SwitchParameter]$UseLinkedAdminToken,
 
-        [Parameter(Mandatory = $false, ParameterSetName = 'Username')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'RunAsActiveUser')]
+        [System.Management.Automation.SwitchParameter]$UseHighestAvailableToken,
+
+        [Parameter(Mandatory = $false, ParameterSetName = 'RunAsActiveUser')]
         [System.Management.Automation.SwitchParameter]$InheritEnvironmentVariables,
 
         [Parameter(Mandatory = $true, ParameterSetName = 'UseUnelevatedToken')]

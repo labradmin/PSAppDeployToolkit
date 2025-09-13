@@ -152,23 +152,23 @@ namespace PSADT.Module
                     }
                     if (parameters.TryGetValue("DeployAppScriptParameters", out paramValue) && (null != paramValue))
                     {
-                        _deployAppScriptParameters = new ReadOnlyDictionary<string, object>((Dictionary<string, object>)paramValue);
+                        _deployAppScriptParameters = new((Dictionary<string, object>)paramValue);
                     }
                     if (parameters.TryGetValue("AppSuccessExitCodes", out paramValue) && (null != paramValue))
                     {
-                        _appSuccessExitCodes = new ReadOnlyCollection<int>((int[])paramValue);
+                        _appSuccessExitCodes = new((int[])paramValue);
                     }
                     if (parameters.TryGetValue("AppRebootExitCodes", out paramValue) && (null != paramValue))
                     {
-                        _appRebootExitCodes = new ReadOnlyCollection<int>((int[])paramValue);
+                        _appRebootExitCodes = new((int[])paramValue);
                     }
                     if (parameters.TryGetValue("AppProcessesToClose", out paramValue) && (null != paramValue))
                     {
-                        _appProcessesToClose = new ReadOnlyCollection<ProcessDefinition>((ProcessDefinition[])paramValue);
+                        _appProcessesToClose = new((ProcessDefinition[])paramValue);
                     }
                     if (parameters.TryGetValue("ScriptDirectory", out paramValue) && (null != paramValue))
                     {
-                        _scriptDirectory = new ReadOnlyCollection<string>((string[])paramValue);
+                        _scriptDirectory = new((string[])paramValue);
                     }
                     if (parameters.TryGetValue("DirFiles", out paramValue) && !string.IsNullOrWhiteSpace((string?)paramValue))
                     {
@@ -188,7 +188,7 @@ namespace PSADT.Module
                     }
                     if (parameters.TryGetValue("DefaultMspFiles", out paramValue) && (null != paramValue))
                     {
-                        _defaultMspFiles = new ReadOnlyCollection<string>((string[])paramValue);
+                        _defaultMspFiles = new((string[])paramValue);
                     }
                     if (parameters.TryGetValue("DisableDefaultMsiProcessList", out paramValue) && (SwitchParameter)paramValue)
                     {
@@ -249,7 +249,7 @@ namespace PSADT.Module
 
 
                 #endregion
-                #region DetectDefaultWimFile
+                #region DetectDefaultWim
 
 
                 // If the default frontend hasn't been modified, and there's not already a mounted WIM file, check for WIM files and modify the install accordingly.
@@ -263,7 +263,7 @@ namespace PSADT.Module
                         WriteLogEntry($"Discovered Zero-Config WIM file [{wimFile}].");
                         string mountPath = Path.Combine(_dirFiles, Path.GetRandomFileName());
                         ModuleDatabase.InvokeScript(ScriptBlock.Create("& $Script:CommandTable.'Mount-ADTWimFile' -ImagePath $args[0] -Path $args[1] -Index 1"), wimFile, mountPath);
-                        AddMountedWimFile(new FileInfo(wimFile)); _dirFiles = mountPath;
+                        AddMountedWimFile(new(wimFile)); _dirFiles = mountPath;
                         WriteLogEntry($"Successfully mounted WIM file to [{mountPath}].");
 
                         // Subst the new DirFiles path to eliminate any potential path length issues.
@@ -341,7 +341,7 @@ namespace PSADT.Module
                         {
                             if (!string.IsNullOrWhiteSpace(_dirFiles) && (Directory.GetFiles(_dirFiles, "*", SearchOption.TopDirectoryOnly).Where(static f => f.EndsWith(".msp", StringComparison.OrdinalIgnoreCase)).ToArray() is string[] mspFiles) && (mspFiles.Length > 0))
                             {
-                                _defaultMspFiles = new ReadOnlyCollection<string>(mspFiles);
+                                _defaultMspFiles = new(mspFiles);
                             }
                         }
                         else if (!string.IsNullOrWhiteSpace(_dirFiles) && (null != _defaultMspFiles.FirstOrDefault(static f => !Path.IsPathRooted(f))))
@@ -353,17 +353,18 @@ namespace PSADT.Module
                             WriteLogEntry($"Discovered Zero-Config MSP installation file(s) [{string.Join(", ", _defaultMspFiles)}].");
                         }
 
-                        // Read the MSI and get the installation details.
-                        if (Settings.HasFlag(DeploymentSettings.DisableDefaultMsiProcessList))
+                        // Generate list of MSI executables for use with Show-ADTInstallationWelcome.
+                        if (!Settings.HasFlag(DeploymentSettings.DisableDefaultMsiProcessList))
                         {
-                            var exeProps = (IReadOnlyDictionary<string, object>)ModuleDatabase.InvokeScript(ScriptBlock.Create("$gmtpParams = @{ Path = $args[0] }; if ($args[1]) { $gmtpParams.Add('TransformPath', $args[1]) }; & $Script:CommandTable.'Get-ADTMsiTableProperty' @gmtpParams -Table File"), DefaultMsiFile!, DefaultMstFile!).First().BaseObject;
-                            List<ProcessDefinition> msiExecList = exeProps.Where(static p => Path.GetExtension(p.Key).Equals(".exe", StringComparison.OrdinalIgnoreCase)).Select(static p => new ProcessDefinition(Regex.Replace(Path.GetFileNameWithoutExtension(p.Key), "^_", string.Empty))).ToList();
-
-                            // Generate list of MSI executables for testing later on.
-                            if (msiExecList.Count > 0)
+                            var gmtpOutput = ModuleDatabase.InvokeScript(ScriptBlock.Create("$gmtpParams = @{ Path = $args[0] }; if ($args[1]) { $gmtpParams.Add('TransformPath', $args[1]) }; & $Script:CommandTable.'Get-ADTMsiTableProperty' @gmtpParams -Table File"), DefaultMsiFile!, DefaultMstFile!);
+                            if (gmtpOutput.Count > 0)
                             {
-                                DefaultMsiExecutablesList = msiExecList.AsReadOnly();
-                                WriteLogEntry($"MSI Executable List [{string.Join(", ", DefaultMsiExecutablesList.Select(static p => p.Name))}].");
+                                var msiExecList = ((IReadOnlyDictionary<string, object>)gmtpOutput.First().BaseObject).Where(static p => Path.GetExtension(p.Key).Equals(".exe", StringComparison.OrdinalIgnoreCase)).Select(static p => new ProcessDefinition(Regex.Replace(Path.GetFileNameWithoutExtension(p.Key), "^_", string.Empty)));
+                                if (msiExecList.Any())
+                                {
+                                    _appProcessesToClose = _appProcessesToClose.Concat(msiExecList).GroupBy(static p => p.Name, StringComparer.OrdinalIgnoreCase).Select(static g => g.First()).ToList().AsReadOnly();
+                                    WriteLogEntry($"MSI Executable List [{string.Join(", ", msiExecList.Select(static p => p.Name))}].");
+                                }
                             }
                         }
 
@@ -466,7 +467,7 @@ namespace PSADT.Module
                 // Append subfolder path if configured to do so.
                 if ((bool)configToolkit["LogToHierarchy"]!)
                 {
-                    _logPath = Directory.CreateDirectory(Path.Combine(_logPath, $@"{_appVendor}\{_appName}\{_appVersion}".Replace(@"\\", string.Empty))).FullName;
+                    _logPath = Directory.CreateDirectory(Path.Combine(_logPath, $@"{_appVendor}\{_appName}\{_appVersion}".Replace(@"\\", null))).FullName;
                 }
                 else if ((bool)configToolkit["LogToSubfolder"]!)
                 {
@@ -606,7 +607,7 @@ namespace PSADT.Module
                 // Test and warn if this toolkit was started with ServiceUI anywhere as a parent process.
                 if (AccountUtilities.CallerUsingServiceUI)
                 {
-                    WriteLogEntry($"[{appDeployToolkitName}] was started with ServiceUI as a parent process. This is no longer required and will not be supported in a later release.", LogSeverity.Warning);
+                    WriteLogEntry($"[{appDeployToolkitName}] was started with ServiceUI as a parent process. This is no longer required with PSAppDeployToolkit 4.1.x or higher and will be forbidden in a later release.", LogSeverity.Warning);
                 }
 
 
@@ -863,7 +864,7 @@ namespace PSADT.Module
                     {
                         WriteLogEntry($"The processes ['{string.Join("', '", _appProcessesToClose.Select(static p => p.Name))}'] were specified as requiring closure but deployment has already been changed to [{_deployMode}]");
                     }
-                    if (_deployMode != DeployMode.Auto)
+                    else if (_deployMode != DeployMode.Auto)
                     {
                         WriteLogEntry($"The processes ['{string.Join("', '", _appProcessesToClose.Select(static p => p.Name))}'] were specified as requiring closure but deployment mode was explicitly set to [{_deployMode}].");
                     }
@@ -935,11 +936,11 @@ namespace PSADT.Module
                 {
                     foreach (PropertyInfo property in typeof(DeploymentSession).GetProperties())
                     {
-                        callerSessionState.PSVariable.Set(new PSVariable(property.Name, property.GetValue(this)));
+                        callerSessionState.PSVariable.Set(new(property.Name, property.GetValue(this)));
                     }
                     foreach (FieldInfo field in typeof(DeploymentSession).GetFields())
                     {
-                        callerSessionState.PSVariable.Set(new PSVariable(field.Name, field.GetValue(this)));
+                        callerSessionState.PSVariable.Set(new(field.Name, field.GetValue(this)));
                     }
                     CallerSessionState = callerSessionState;
                 }
@@ -997,7 +998,7 @@ namespace PSADT.Module
             }
 
             // Process resulting exit code.
-            string deployString = $"{(!string.IsNullOrWhiteSpace(InstallName) ? $"[{InstallName}] {DeploymentType.ToString().ToLower()}" : $"{ModuleDatabase.GetEnvironment()["appDeployToolkitName"]} deployment")} completed in [{{0}}] seconds with exit code [{{1}}].";
+            string deployString = $"{(!string.IsNullOrWhiteSpace(InstallName) ? $"[{Regex.Replace(InstallName, @"(?<!\{)\{(?!\{)|(?<!\})\}(?!\})", "$0$0")}] {DeploymentType.ToString().ToLower()}" : $"{ModuleDatabase.GetEnvironment()["appDeployToolkitName"]} deployment")} completed in [{{0}}] seconds with exit code [{{1}}].";
             DeploymentStatus deploymentStatus = GetDeploymentStatus();
             switch (deploymentStatus)
             {
@@ -1093,7 +1094,7 @@ namespace PSADT.Module
         /// </summary>
         /// <param name="writeHost"></param>
         /// <returns></returns>
-        private HostLogStream GetHostLogStreamMode(bool? writeHost = null)
+        private static HostLogStream GetHostLogStreamMode(bool? writeHost = null)
         {
             var configToolkit = (Hashtable)ModuleDatabase.GetConfig()["Toolkit"]!;
             if ((null != writeHost && !writeHost.Value) || !(bool)configToolkit["LogWriteToHost"]!)
@@ -1206,7 +1207,7 @@ namespace PSADT.Module
             {
                 return (T)CallerSessionState.PSVariable.GetValue(propertyName);
             }
-            return (T)(Enum.TryParse<DeploymentSettings>(propertyName, out DeploymentSettings flag) ? Settings.HasFlag(flag) : BackingFields[propertyName!].GetValue(this)!);
+            return (T)(Enum.TryParse(propertyName, out DeploymentSettings flag) ? Settings.HasFlag(flag) : BackingFields[propertyName!].GetValue(this)!);
         }
 
         /// <summary>
@@ -1219,7 +1220,7 @@ namespace PSADT.Module
         {
             if (null != CallerSessionState)
             {
-                CallerSessionState.PSVariable.Set(new PSVariable(propertyName, value));
+                CallerSessionState.PSVariable.Set(new(propertyName, value));
             }
             BackingFields[propertyName!].SetValue(this, value);
         }
@@ -1246,7 +1247,7 @@ namespace PSADT.Module
                 return null;
             }
             WriteLogEntry("Getting deferral history...");
-            var history = ModuleDatabase.GetSessionState().InvokeProvider.Property.Get(RegKeyDeferHistory, null).First();
+            var history = ModuleDatabase.GetSessionState().InvokeProvider.Property.Get(RegKeyDeferHistory, null).FirstOrDefault();
             if (null == history)
             {
                 return null;
@@ -1365,12 +1366,6 @@ namespace PSADT.Module
         public void AddMountedWimFile(FileInfo wimFile) => MountedWimFiles.Add(wimFile);
 
         /// <summary>
-        /// Gets the default MSI executables list.
-        /// </summary>
-        /// <returns>An array of default MSI executables.</returns>
-        public IReadOnlyList<ProcessDefinition> GetDefaultMsiExecutablesList() => DefaultMsiExecutablesList;
-
-        /// <summary>
         /// Determines whether the session is allowed to exit PowerShell on close.
         /// </summary>
         /// <returns>True if the session can exit; otherwise, false.</returns>
@@ -1418,7 +1413,7 @@ namespace PSADT.Module
         /// <summary>
         /// Array of all possible drive letters in reverse order.
         /// </summary>
-        private static readonly ReadOnlyCollection<string> DriveLetters = new ReadOnlyCollection<string>([@"Z:\", @"Y:\", @"X:\", @"W:\", @"V:\", @"U:\", @"T:\", @"S:\", @"R:\", @"Q:\", @"P:\", @"O:\", @"N:\", @"M:\", @"L:\", @"K:\", @"J:\", @"I:\", @"H:\", @"G:\", @"F:\", @"E:\", @"D:\", @"C:\", @"B:\", @"A:\"]);
+        private static readonly ReadOnlyCollection<string> DriveLetters = new([@"Z:\", @"Y:\", @"X:\", @"W:\", @"V:\", @"U:\", @"T:\", @"S:\", @"R:\", @"Q:\", @"P:\", @"O:\", @"N:\", @"M:\", @"L:\", @"K:\", @"J:\", @"I:\", @"H:\", @"G:\", @"F:\", @"E:\", @"D:\", @"C:\", @"B:\", @"A:\"]);
 
         /// <summary>
         /// Buffer for log entries.
@@ -1439,11 +1434,6 @@ namespace PSADT.Module
         /// Gets the mounted WIM files within this session.
         /// </summary>
         private readonly List<FileInfo> MountedWimFiles = [];
-
-        /// <summary>
-        /// Gets the list of executables found within a Zero-Config MSI file.
-        /// </summary>
-        private readonly ReadOnlyCollection<ProcessDefinition> DefaultMsiExecutablesList = new ReadOnlyCollection<ProcessDefinition>([]);
 
         /// <summary>
         /// Gets the drive letter used with subst during a Zero-Config WIM file mount operation.
@@ -1478,9 +1468,9 @@ namespace PSADT.Module
         private readonly string? _appArch;
         private readonly string? _appLang;
         private readonly string? _appRevision;
-        private readonly ReadOnlyCollection<int> _appSuccessExitCodes = new ReadOnlyCollection<int>([0]);
-        private readonly ReadOnlyCollection<int> _appRebootExitCodes = new ReadOnlyCollection<int>([1641, 3010]);
-        private readonly ReadOnlyCollection<ProcessDefinition> _appProcessesToClose = new ReadOnlyCollection<ProcessDefinition>([]);
+        private readonly ReadOnlyCollection<int> _appSuccessExitCodes = new([0]);
+        private readonly ReadOnlyCollection<int> _appRebootExitCodes = new([1641, 3010]);
+        private readonly ReadOnlyCollection<ProcessDefinition> _appProcessesToClose = new([]);
         private readonly Version? _appScriptVersion;
         private readonly DateTime? _appScriptDate;
         private readonly string? _appScriptAuthor;
@@ -1491,10 +1481,10 @@ namespace PSADT.Module
         private readonly ReadOnlyDictionary<string, object>? _deployAppScriptParameters;
         private readonly string _currentDate;
         private readonly string _currentTime;
-        private readonly ReadOnlyCollection<string> _scriptDirectory = new ReadOnlyCollection<string>([]);
+        private readonly ReadOnlyCollection<string> _scriptDirectory = new([]);
         private readonly string? _defaultMsiFile;
         private readonly string? _defaultMstFile;
-        private readonly ReadOnlyCollection<string> _defaultMspFiles = new ReadOnlyCollection<string>([]);
+        private readonly ReadOnlyCollection<string> _defaultMspFiles = new([]);
         private readonly string _logPath;
         private readonly string _logName;
         private string _installPhase = "Initialization";
@@ -1707,6 +1697,11 @@ namespace PSADT.Module
         /// Gets the deployment session's log filename.
         /// </summary>
         public string LogName => GetPropertyValue<string>();
+
+        /// <summary>
+        /// Gets a value indicating whether administrative privileges are required.
+        /// </summary>
+        public bool RequireAdmin => GetPropertyValue<bool>();
 
 
         #endregion

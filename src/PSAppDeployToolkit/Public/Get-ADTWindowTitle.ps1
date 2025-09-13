@@ -101,7 +101,7 @@ function Get-ADTWindowTitle
     process
     {
         # Bypass if no one's logged onto the device.
-        if (!($runAsActiveUser = Get-ADTClientServerUser))
+        if (!($runAsActiveUser = Get-ADTClientServerUser -AllowSystemFallback))
         {
             Write-ADTLogEntry -Message "Bypassing $($MyInvocation.MyCommand.Name) as there is no active user logged onto the system."
             return
@@ -122,10 +122,7 @@ function Get-ADTWindowTitle
         {
             try
             {
-                if (($windowInfo = Invoke-ADTClientServerOperation -GetProcessWindowInfo -User $runAsActiveUser -Options ([PSADT.WindowManagement.WindowInfoOptions]::new($WindowTitle, $WindowHandle, $ParentProcess))))
-                {
-                    $PSCmdlet.WriteObject($windowInfo, $false)
-                }
+                return Invoke-ADTClientServerOperation -GetProcessWindowInfo -User $runAsActiveUser -Options ([PSADT.WindowManagement.WindowInfoOptions]::new($WindowTitle, $WindowHandle, $ParentProcess))
             }
             catch
             {

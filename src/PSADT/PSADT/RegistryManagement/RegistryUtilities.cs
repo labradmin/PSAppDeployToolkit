@@ -21,6 +21,38 @@ namespace PSADT.RegistryManagement
         /// <exception cref="ArgumentException"></exception>
         public static DateTime GetRegistryKeyLastWriteTime(string fullKeyPath)
         {
+            using var hKey = OpenRegistryKey(fullKeyPath);
+            AdvApi32.RegQueryInfoKey(hKey, null, out _, out _, out _, out _, out _, out _, out _, out _, out var lastWriteTime);
+            return lastWriteTime.ToDateTime();
+        }
+
+        /// <summary>
+        /// Renames a subkey within the specified registry key path.
+        /// </summary>
+        /// <remarks>This method uses the Windows API to rename a registry subkey. Ensure that the caller
+        /// has sufficient permissions to modify the registry and that the specified key path and subkey names are
+        /// valid.</remarks>
+        /// <param name="keyPath">The path of the registry key containing the subkey to rename. This must be a valid registry key path.</param>
+        /// <param name="subKeyName">The name of the subkey to rename. If this is null, the key path is what will be renamed.</param>
+        /// <param name="newKeyName">The new name for the subkey. This cannot be null or empty.</param>
+        public static void RenameRegistryKey(string keyPath, string? subKeyName, string newKeyName)
+        {
+            using var hKey = OpenRegistryKey(keyPath, REG_SAM_FLAGS.KEY_READ | REG_SAM_FLAGS.KEY_WRITE);
+            AdvApi32.RegRenameKey(hKey, subKeyName, newKeyName);
+        }
+
+        /// <summary>
+        /// Opens a registry key specified by its full path and returns a handle to the key.
+        /// </summary>
+        /// <remarks>The method validates the input path, determines the appropriate registry hive, and
+        /// opens the specified subkey with read-only access. The caller is responsible for disposing of the returned
+        /// <see cref="Microsoft.Win32.SafeHandles.SafeRegistryHandle"/>  to release the associated resources.</remarks>
+        /// <param name="fullKeyPath">The full path of the registry key to open, including the hive name (e.g.,
+        /// "HKEY_LOCAL_MACHINE\Software\Example").</param>
+        /// <returns>A <see cref="Microsoft.Win32.SafeHandles.SafeRegistryHandle"/> representing the opened registry key.</returns>
+        /// <exception cref="ArgumentException">Thrown if <paramref name="fullKeyPath"/> is null, empty, or not in a valid registry key format.</exception>
+        private static SafeRegistryHandle OpenRegistryKey(string fullKeyPath, REG_SAM_FLAGS openFlags = REG_SAM_FLAGS.KEY_READ)
+        {
             // Ensure the supplied input isn't null.
             if (string.IsNullOrWhiteSpace(fullKeyPath))
             {
@@ -36,31 +68,31 @@ namespace PSADT.RegistryManagement
             string hiveName = parts[0];
             string subKeyPath = parts[1];
 
-            // Validate and get the correct handle for the root hive.
-            if (!HiveMap.TryGetValue(hiveName, out var hKeyRoot))
-            {
-                throw new ArgumentException($"Invalid registry hive: {hiveName}", nameof(fullKeyPath));
-            }
-
-            // Open the registry key and get the modified time it.
-            AdvApi32.RegOpenKeyEx(hKeyRoot, subKeyPath, 0, REG_SAM_FLAGS.KEY_READ, out var hKey);
-            using (hKey)
-            {
-                AdvApi32.RegQueryInfoKey(hKey, null, out _, out _, out _, out _, out _, out _, out _, out _, out var lastWriteTime);
-                return lastWriteTime.ToDateTime();
-            }
+            // Open the registry key and return it to the caller.
+            using var hKeyRoot = GetRegistryHiveHandle(hiveName);
+            AdvApi32.RegOpenKeyEx(hKeyRoot, subKeyPath, openFlags, out var hKey);
+            return hKey;
         }
 
         /// <summary>
-        /// Registry hive lookup table.
+        /// Retrieves a handle to the specified registry hive.
         /// </summary>
-        private static readonly ReadOnlyDictionary<string, SafeRegistryHandle> HiveMap = new(new Dictionary<string, SafeRegistryHandle>()
+        /// <param name="hiveName">The name of the registry hive to retrieve. Supported values are <c>"HKEY_LOCAL_MACHINE"</c>,
+        /// <c>"HKEY_CURRENT_USER"</c>, <c>"HKEY_CLASSES_ROOT"</c>, <c>"HKEY_USERS"</c>, and <c>"HKEY_CURRENT_CONFIG"</c>.</param>
+        /// <returns>A <see cref="Microsoft.Win32.SafeHandles.SafeRegistryHandle"/> representing the handle to the specified
+        /// registry hive.</returns>
+        /// <exception cref="ArgumentException">Thrown if <paramref name="hiveName"/> is not one of the supported registry hive names.</exception>
+        private static SafeRegistryHandle GetRegistryHiveHandle(string hiveName)
         {
-            { "HKEY_LOCAL_MACHINE", new SafeRegistryHandle(HKEY.HKEY_LOCAL_MACHINE, false) },
-            { "HKEY_CURRENT_USER", new SafeRegistryHandle(HKEY.HKEY_CURRENT_USER, false) },
-            { "HKEY_CLASSES_ROOT", new SafeRegistryHandle(HKEY.HKEY_LOCAL_MACHINE, false) },
-            { "HKEY_USERS", new SafeRegistryHandle(HKEY.HKEY_USERS, false) },
-            { "HKEY_CURRENT_CONFIG", new SafeRegistryHandle(HKEY.HKEY_CURRENT_CONFIG, false) }
-        });
+            return hiveName switch
+            {
+                "HKEY_LOCAL_MACHINE" => new(HKEY.HKEY_LOCAL_MACHINE, false),
+                "HKEY_CURRENT_USER" => new(HKEY.HKEY_CURRENT_USER, false),
+                "HKEY_CLASSES_ROOT" => new(HKEY.HKEY_CLASSES_ROOT, false),
+                "HKEY_USERS" => new(HKEY.HKEY_USERS, false),
+                "HKEY_CURRENT_CONFIG" => new(HKEY.HKEY_CURRENT_CONFIG, false),
+                _ => throw new ArgumentException($"Invalid registry hive: {hiveName}", nameof(hiveName)),
+            };
+        }
     }
 }

@@ -6,7 +6,7 @@ namespace PSADT.Types
     /// <summary>
     /// Represents an LNK (Windows Shortcut) file.
     /// </summary>
-    public sealed record ShortcutLnk : ShortcutBase
+    public sealed class ShortcutLnk : ShortcutBase
     {
         /// <summary>
         /// Initializes a new instance of the <see cref="ShortcutLnk"/> class with specified properties.
@@ -17,7 +17,7 @@ namespace PSADT.Types
         /// <param name="windowStyle">Window style (e.g., normal, minimized, maximized).</param>
         /// <param name="hotkey">Hotkey associated with the shortcut.</param>
         /// <param name="runAsAdmin">Indicates if the shortcut requires administrative privileges.</param>
-        public ShortcutLnk(string? path, string? targetPath, string? iconIndex, string? iconLocation, string? arguments, string? description, string? workingDirectory, string? windowStyle, string? hotkey, bool runAsAdmin) : base(path, targetPath, iconIndex, iconLocation)
+        public ShortcutLnk(string path, string targetPath, string? iconLocation, string? iconIndex, string? arguments, string? description, string? workingDirectory, string? windowStyle, string? hotkey, bool runAsAdmin) : base(path, targetPath, iconLocation, iconIndex)
         {
             if (string.IsNullOrWhiteSpace(windowStyle) || !Regex.IsMatch(windowStyle, "^(Normal|Minimized|Maximized)$", RegexOptions.IgnoreCase))
             {

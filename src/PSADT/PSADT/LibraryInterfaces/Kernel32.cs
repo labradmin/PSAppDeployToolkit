@@ -1,7 +1,7 @@
 ﻿using System;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Security.AccessControl;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
 using PSADT.SafeHandles;
@@ -9,6 +9,7 @@ using PSADT.Utilities;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.Security;
+using Windows.Win32.Storage.FileSystem;
 using Windows.Win32.System.JobObjects;
 using Windows.Win32.System.LibraryLoader;
 using Windows.Win32.System.Power;
@@ -362,33 +363,6 @@ namespace PSADT.LibraryInterfaces
         }
 
         /// <summary>
-        /// Wrapper around SetPriorityClass to manage error handling.
-        /// </summary>
-        /// <param name="hProcess"></param>
-        /// <param name="dwPriorityClass"></param>
-        /// <returns></returns>
-        private static BOOL SetPriorityClass(SafeHandle hProcess, PROCESS_CREATION_FLAGS dwPriorityClass)
-        {
-            var res = PInvoke.SetPriorityClass(hProcess, dwPriorityClass);
-            if (!res)
-            {
-                throw ExceptionUtilities.GetExceptionForLastWin32Error();
-            }
-            return res;
-        }
-
-        /// <summary>
-        /// Wrapper around SetPriorityClass to manage error handling.
-        /// </summary>
-        /// <param name="hProcess"></param>
-        /// <param name="dwPriorityClass"></param>
-        /// <returns></returns>
-        internal static BOOL SetPriorityClass(SafeHandle hProcess, ProcessPriorityClass dwPriorityClass)
-        {
-            return SetPriorityClass(hProcess, (PROCESS_CREATION_FLAGS)dwPriorityClass);
-        }
-
-        /// <summary>
         /// Terminates a job object and all child processes under it.
         /// </summary>
         /// <param name="hJob"></param>
@@ -498,6 +472,39 @@ namespace PSADT.LibraryInterfaces
         {
             var res = PInvoke.LoadLibrary(lpLibFileName);
             if (null == res || res.IsInvalid)
+            {
+                throw ExceptionUtilities.GetExceptionForLastWin32Error();
+            }
+            return res;
+        }
+
+        /// <summary>
+        /// Retrieves a safe handle representing the current process.
+        /// </summary>
+        /// <remarks>The returned handle is safe to use with Windows API functions that require a process
+        /// handle. It is the caller's responsibility to ensure proper disposal of the handle to release system
+        /// resources.</remarks>
+        /// <returns>A <see cref="SafeProcessHandle"/> that encapsulates a handle to the current process.</returns>
+        internal static SafeProcessHandle GetCurrentProcess()
+        {
+            var res = PInvoke.GetCurrentProcess();
+            if (res != (nint)(-1))
+            {
+                throw new InvalidOperationException("Failed to retrieve handle for current process.");
+            }
+            return new(res, true);
+        }
+
+        /// <summary>
+        /// Retrieves the session ID associated with a specified process ID.
+        /// </summary>
+        /// <param name="dwProcessId">The process ID for which to retrieve the session ID.</param>
+        /// <param name="pSessionId">When this method returns, contains the session ID associated with the specified process ID.</param>
+        /// <returns><see langword="true"/> if the session ID was successfully retrieved; otherwise, <see langword="false"/>.</returns>
+        internal static BOOL ProcessIdToSessionId(uint dwProcessId, out uint pSessionId)
+        {
+            var res = PInvoke.ProcessIdToSessionId(dwProcessId, out pSessionId);
+            if (!res)
             {
                 throw ExceptionUtilities.GetExceptionForLastWin32Error();
             }
@@ -790,6 +797,68 @@ namespace PSADT.LibraryInterfaces
         {
             var res = PInvoke.PostQueuedCompletionStatus(CompletionPort, dwNumberOfBytesTransferred, dwCompletionKey, lpOverlapped);
             if (!res)
+            {
+                throw ExceptionUtilities.GetExceptionForLastWin32Error();
+            }
+            return res;
+        }
+
+        /// <summary>
+        /// Creates or opens a file or I/O device.
+        /// </summary>
+        /// <param name="lpFileName"></param>
+        /// <param name="dwDesiredAccess"></param>
+        /// <param name="dwShareMode"></param>
+        /// <param name="lpSecurityAttributes"></param>
+        /// <param name="dwCreationDisposition"></param>
+        /// <param name="dwFlagsAndAttributes"></param>
+        /// <param name="hTemplateFile"></param>
+        /// <returns></returns>
+        internal static SafeFileHandle CreateFile(string lpFileName, FileSystemRights dwDesiredAccess, FILE_SHARE_MODE dwShareMode, SECURITY_ATTRIBUTES? lpSecurityAttributes, FILE_CREATION_DISPOSITION dwCreationDisposition, FILE_FLAGS_AND_ATTRIBUTES dwFlagsAndAttributes, SafeHandle? hTemplateFile = null)
+        {
+            var res = PInvoke.CreateFile(lpFileName, (uint)dwDesiredAccess, dwShareMode, lpSecurityAttributes, dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile);
+            if (res.IsInvalid)
+            {
+                throw ExceptionUtilities.GetExceptionForLastWin32Error();
+            }
+            return res;
+        }
+
+        /// <summary>
+        /// Retrieves the product type of the operating system based on the specified version and service pack
+        /// information.
+        /// </summary>
+        /// <param name="dwOSMajorVersion">The major version number of the operating system.</param>
+        /// <param name="dwOSMinorVersion">The minor version number of the operating system.</param>
+        /// <param name="dwSpMajorVersion">The major version number of the service pack installed on the operating system.</param>
+        /// <param name="dwSpMinorVersion">The minor version number of the service pack installed on the operating system.</param>
+        /// <param name="pdwReturnedProductType">When this method returns, contains the product type of the operating system. This parameter is passed
+        /// uninitialized.</param>
+        /// <returns><see langword="true"/> if the product type information was successfully retrieved; otherwise, <see
+        /// langword="false"/>.</returns>
+        /// <exception cref="InvalidOperationException">Thrown if the product type information could not be retrieved.</exception>
+        internal static BOOL GetProductInfo(uint dwOSMajorVersion, uint dwOSMinorVersion, uint dwSpMajorVersion, uint dwSpMinorVersion, out OS_PRODUCT_TYPE pdwReturnedProductType)
+        {
+            var res = PInvoke.GetProductInfo(dwOSMajorVersion, dwOSMinorVersion, dwSpMajorVersion, dwSpMinorVersion, out pdwReturnedProductType);
+            if (!res)
+            {
+                throw new InvalidOperationException("Failed to get product info.");
+            }
+            return res;
+        }
+
+        /// <summary>
+        /// Waits for the specified object to enter a signaled state or for the specified timeout interval to elapse.
+        /// </summary>
+        /// <param name="hHandle">A handle to the object to wait for. This handle must be valid and cannot be null.</param>
+        /// <param name="dwMilliseconds">The time-out interval, in milliseconds. Specify <see langword="uint.MaxValue"/> to wait indefinitely.</param>
+        /// <returns>A <see cref="WAIT_EVENT"/> value indicating the result of the wait operation. Possible values include <see
+        /// cref="WAIT_EVENT.WAIT_OBJECT_0"/> for a signaled state, <see cref="WAIT_EVENT.WAIT_TIMEOUT"/> for a timeout,
+        /// or <see cref="WAIT_EVENT.WAIT_ABANDONED"/> for an abandoned mutex.</returns>
+        internal static WAIT_EVENT WaitForSingleObject(SafeHandle hHandle, uint dwMilliseconds)
+        {
+            var res = PInvoke.WaitForSingleObject(hHandle, dwMilliseconds);
+            if (res == WAIT_EVENT.WAIT_FAILED)
             {
                 throw ExceptionUtilities.GetExceptionForLastWin32Error();
             }

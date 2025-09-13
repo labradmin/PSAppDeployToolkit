@@ -21,11 +21,9 @@ using PSADT.FileSystem;
 using PSADT.LibraryInterfaces;
 using PSADT.SafeHandles;
 using PSADT.Security;
-using PSADT.TerminalServices;
 using PSADT.Utilities;
 using Windows.Win32;
 using Windows.Win32.Foundation;
-using Windows.Win32.Security;
 using Windows.Win32.System.JobObjects;
 using Windows.Win32.System.Threading;
 
@@ -67,6 +65,7 @@ namespace PSADT.ProcessManagement
 
             // Set up the job object and I/O completion port for the process.
             // No using statements here, they're disposed of in the final task.
+            bool assignProcessToJob = launchInfo.WaitForChildProcesses || launchInfo.KillChildProcessesWithParent;
             var iocp = Kernel32.CreateIoCompletionPort(SafeBaseHandle.InvalidHandle, SafeBaseHandle.NullHandle, UIntPtr.Zero, 1);
             var job = Kernel32.CreateJobObject(null, default); bool iocpAddRef = false; iocp.DangerousAddRef(ref iocpAddRef);
             Kernel32.SetInformationJobObject(job, JOBOBJECTINFOCLASS.JobObjectAssociateCompletionPortInformation, new JOBOBJECT_ASSOCIATE_COMPLETION_PORT { CompletionPort = (HANDLE)iocp.DangerousGetHandle(), CompletionKey = null });
@@ -79,7 +78,7 @@ namespace PSADT.ProcessManagement
 
             // We only let console apps run via ShellExecuteEx() when there's a window shown for it.
             // Invoking processes as user has no ShellExecute capability, so it always comes through here.
-            if ((cliApp && launchInfo.CreateNoWindow) || (!launchInfo.UseShellExecute) || (null != launchInfo.Username))
+            if ((cliApp && launchInfo.CreateNoWindow) || (!launchInfo.UseShellExecute) || (null != launchInfo.RunAsActiveUser))
             {
                 AnonymousPipeServerStream? hStdOutRead = null;
                 AnonymousPipeServerStream? hStdErrRead = null;
@@ -145,63 +144,10 @@ namespace PSADT.ProcessManagement
 
                     // Handle user process creation, otherwise just create the process for the running user.
                     PROCESS_INFORMATION pi = new();
-                    if (null != launchInfo.Username && launchInfo.Username != AccountUtilities.CallerUsername && GetSessionForUsername(launchInfo.Username) is SessionInfo session)
+                    if (null != launchInfo.RunAsActiveUser && launchInfo.RunAsActiveUser.SID != AccountUtilities.CallerSid)
                     {
-                        // Get the user's token.
-                        SafeFileHandle hUserToken = null!;
-                        if (!AccountUtilities.CallerIsLocalSystem)
-                        {
-                            // When we're not local system, we need to find the user's Explorer process and get its token.
-                            PrivilegeManager.EnablePrivilegeIfDisabled(SE_PRIVILEGE.SeDebugPrivilege);
-                            foreach (var explorerProcess in Process.GetProcessesByName("explorer").OrderBy(static p => p.StartTime))
-                            {
-                                using (explorerProcess) using (explorerProcess.SafeHandle)
-                                {
-                                    AdvApi32.OpenProcessToken(explorerProcess.SafeHandle, TOKEN_ACCESS_MASK.TOKEN_QUERY | TOKEN_ACCESS_MASK.TOKEN_DUPLICATE, out var hProcessToken);
-                                    if (TokenManager.GetTokenSid(hProcessToken) == session.SID)
-                                    {
-                                        hUserToken = hProcessToken;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                        else
-                        {
-                            // When we're local system, we can just get the primary token for the user.
-                            PrivilegeManager.EnablePrivilegeIfDisabled(SE_PRIVILEGE.SeTcbPrivilege);
-                            WtsApi32.WTSQueryUserToken(session.SessionId, out hUserToken);
-                        }
-
-                        // Throw if for whatever reason, we couldn't get a token.
-                        if (null == hUserToken)
-                        {
-                            throw new InvalidOperationException($"Failed to retrieve a primary token for user [{session.NTAccount}]. Ensure the user is logged on and has an active session.");
-                        }
-
-                        // Get the primary token for the user, either linked or not.
-                        SafeFileHandle hPrimaryToken;
-                        using (hUserToken)
-                        {
-                            if (launchInfo.UseLinkedAdminToken)
-                            {
-                                try
-                                {
-                                    hPrimaryToken = TokenManager.GetLinkedPrimaryToken(hUserToken);
-                                }
-                                catch (Exception ex)
-                                {
-                                    throw new UnauthorizedAccessException($"Failed to get the linked admin token for user [{session.NTAccount}].", ex);
-                                }
-                            }
-                            else
-                            {
-                                hPrimaryToken = TokenManager.GetPrimaryToken(hUserToken);
-                            }
-                        }
-
                         // Start the process with the user's token.
-                        using (hPrimaryToken)
+                        using (var hPrimaryToken = ProcessToken.GetUserPrimaryToken(launchInfo.RunAsActiveUser, launchInfo.UseLinkedAdminToken, launchInfo.UseHighestAvailableToken))
                         {
                             // Without creating an environment block, the process will take on the environment of the SYSTEM account.
                             UserEnv.CreateEnvironmentBlock(out var lpEnvironment, hPrimaryToken, launchInfo.InheritEnvironmentVariables);
@@ -211,8 +157,9 @@ namespace PSADT.ProcessManagement
                                 bool lpDesktopAddRef = false;
                                 try
                                 {
-                                    startupInfo.lpDesktop = new PWSTR(lpDesktop.DangerousGetHandle());
-                                    OutLaunchArguments(launchInfo, session.NTAccount, launchInfo.ExpandEnvironmentVariables ? EnvironmentBlockToDictionary(lpEnvironment) : null, out var filePath, out _, out commandLine, out string? workingDirectory); Span<char> commandSpan = commandLine.ToCharArray();
+                                    lpDesktop.DangerousAddRef(ref lpDesktopAddRef);
+                                    startupInfo.lpDesktop = new(lpDesktop.DangerousGetHandle());
+                                    OutLaunchArguments(launchInfo, launchInfo.RunAsActiveUser.NTAccount, launchInfo.ExpandEnvironmentVariables ? EnvironmentBlockToDictionary(lpEnvironment) : null, out var filePath, out _, out commandLine, out string? workingDirectory); Span<char> commandSpan = commandLine.ToCharArray();
                                     CreateProcessUsingToken(hPrimaryToken, filePath, ref commandSpan, inheritHandles, launchInfo.InheritHandles, creationFlags, lpEnvironment, workingDirectory, startupInfo, out pi); commandLine = commandSpan.ToString().TrimRemoveNull();
                                     startupInfo.lpDesktop = null;
                                 }
@@ -226,10 +173,10 @@ namespace PSADT.ProcessManagement
                             }
                         }
                     }
-                    else if (launchInfo.UseUnelevatedToken && AccountUtilities.CallerIsAdmin && !AccountUtilities.CallerIsLocalSystem)
+                    else if ((null != launchInfo.RunAsActiveUser && launchInfo.RunAsActiveUser != AccountUtilities.CallerRunAsActiveUser && !launchInfo.UseLinkedAdminToken && !launchInfo.UseHighestAvailableToken) || (launchInfo.UseUnelevatedToken && AccountUtilities.CallerIsAdmin))
                     {
                         // We're running elevated but have been asked to de-elevate.
-                        using (var hPrimaryToken = GetUnelevatedToken())
+                        using (var hPrimaryToken = ProcessToken.GetUnelevatedToken())
                         {
                             OutLaunchArguments(launchInfo, AccountUtilities.CallerUsername, launchInfo.ExpandEnvironmentVariables ? GetCallerEnvironmentDictionary() : null, out var filePath, out _, out commandLine, out string? workingDirectory); Span<char> commandSpan = commandLine.ToCharArray();
                             CreateProcessUsingToken(hPrimaryToken, filePath, ref commandSpan, inheritHandles, launchInfo.InheritHandles, creationFlags, SafeEnvironmentBlockHandle.Null, workingDirectory, startupInfo, out pi); commandLine = commandSpan.ToString().TrimRemoveNull();
@@ -244,9 +191,13 @@ namespace PSADT.ProcessManagement
 
                     // Start tracking the process and allow it to resume execution.
                     process = GetProcessFromId((processId = pi.dwProcessId).Value);
+                    hProcess = new(pi.hProcess, true);
                     using (SafeThreadHandle hThread = new(pi.hThread, true))
                     {
-                        Kernel32.AssignProcessToJobObject(job, hProcess = new(pi.hProcess, true));
+                        if (assignProcessToJob)
+                        {
+                            Kernel32.AssignProcessToJobObject(job, hProcess);
+                        }
                         Kernel32.ResumeThread(hThread);
                     }
                 }
@@ -290,27 +241,28 @@ namespace PSADT.ProcessManagement
                     process.StartInfo.WindowStyle = ProcessWindowStyle.Hidden;
                 }
 
-                // Start the process and try to get the process's handle.
+                // Start the process and assign the handle to our job if we have one.
                 // For a pure shell action, we won't ever be able to get one.
                 process.Start();
                 try
                 {
-                    hProcess = process.SafeHandle;
+                    if (null != (hProcess = process.SafeHandle))
+                    {
+                        processId = (uint)process.Id;
+                        if (assignProcessToJob)
+                        {
+                            Kernel32.AssignProcessToJobObject(job, hProcess);
+                        }
+                        if (null != launchInfo.PriorityClass && PrivilegeManager.TestProcessAccessRights(hProcess, PROCESS_ACCESS_RIGHTS.PROCESS_SET_INFORMATION))
+                        {
+                            process.PriorityClass = launchInfo.PriorityClass.Value;
+                        }
+                    }
                 }
                 catch
                 {
                     hProcess = null;
-                }
-
-                // Assign the handle to the job object if we have one.
-                if (null != hProcess)
-                {
-                    processId = (uint)process.Id;
-                    Kernel32.AssignProcessToJobObject(job, hProcess);
-                    if (null != launchInfo.PriorityClass && PrivilegeManager.TestProcessAccessRights(hProcess, PROCESS_ACCESS_RIGHTS.PROCESS_SET_INFORMATION))
-                    {
-                        Kernel32.SetPriorityClass(hProcess, launchInfo.PriorityClass.Value);
-                    }
+                    processId = null;
                 }
             }
 
@@ -336,31 +288,40 @@ namespace PSADT.ProcessManagement
                 bool disposeJob = true;
                 try
                 {
-                    while (true)
+                    int exitCode;
+                    if (assignProcessToJob)
                     {
-                        Kernel32.GetQueuedCompletionStatus(iocp, out var lpCompletionCode, out _, out var lpOverlapped, PInvoke.INFINITE);
-                        if (lpCompletionCode == timeoutExitCode)
+                        while (true)
                         {
-                            if (launchInfo.NoTerminateOnTimeout)
+                            Kernel32.GetQueuedCompletionStatus(iocp, out var lpCompletionCode, out _, out var lpOverlapped, PInvoke.INFINITE);
+                            if (lpCompletionCode == timeoutExitCode)
                             {
-                                if (launchInfo.KillChildProcessesWithParent)
+                                if (launchInfo.NoTerminateOnTimeout)
                                 {
-                                    disposeJob = false;
+                                    if (launchInfo.KillChildProcessesWithParent)
+                                    {
+                                        disposeJob = false;
+                                    }
+                                    exitCode = TimeoutExitCode;
+                                    break;
                                 }
-                                tcs.SetResult(new(process, launchInfo, commandLine, TimeoutExitCode, stdout, stderr, interleaved));
+                                Kernel32.TerminateJobObject(job, timeoutExitCode);
+                            }
+                            else if ((lpCompletionCode == (uint)JOB_OBJECT_MSG.JOB_OBJECT_MSG_EXIT_PROCESS && !launchInfo.WaitForChildProcesses && (uint)lpOverlapped == processId) || (lpCompletionCode == (uint)JOB_OBJECT_MSG.JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO))
+                            {
+                                await Task.WhenAll(hStdOutTask, hStdErrTask);
+                                Kernel32.GetExitCodeProcess(hProcess, out var lpExitCode);
+                                exitCode = ValueTypeConverter<int>.Convert(lpExitCode);
                                 break;
                             }
-                            Kernel32.TerminateJobObject(job, timeoutExitCode);
-                            continue;
-                        }
-                        if ((lpCompletionCode == (uint)JOB_OBJECT_MSG.JOB_OBJECT_MSG_EXIT_PROCESS && !launchInfo.WaitForChildProcesses && (uint)lpOverlapped == processId) || (lpCompletionCode == (uint)JOB_OBJECT_MSG.JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO))
-                        {
-                            await Task.WhenAll(hStdOutTask, hStdErrTask);
-                            Kernel32.GetExitCodeProcess(hProcess, out var lpExitCode);
-                            tcs.SetResult(new(process, launchInfo, commandLine, ValueTypeConverter<int>.Convert(lpExitCode), stdout, stderr, interleaved));
-                            break;
                         }
                     }
+                    else
+                    {
+                        process.WaitForExit();
+                        exitCode = process.ExitCode;
+                    }
+                    tcs.SetResult(new(process, launchInfo, commandLine, exitCode, stdout, stderr, interleaved));
                 }
                 catch (Exception ex)
                 {
@@ -383,77 +344,6 @@ namespace PSADT.ProcessManagement
 
             // Return a ProcessHandle object with this process and its running task.
             return new(process, launchInfo, commandLine, tcs.Task);
-        }
-
-        /// <summary>
-        /// Retrieves the session information for the specified user.
-        /// </summary>
-        /// <remarks>This method queries the system for session information associated with the specified
-        /// user. The user must be logged on and their session must be active for the method to succeed.</remarks>
-        /// <param name="username">The <see cref="NTAccount"/> representing the user whose session information is to be retrieved. The account
-        /// must correspond to a logged-on and active user.</param>
-        /// <returns>A <see cref="SessionInfo"/> object containing details about the user's session.</returns>
-        /// <exception cref="InvalidOperationException">Thrown if no user sessions are available, if no session is found for the specified user, or if the user's
-        /// session is not active.</exception>
-        private static SessionInfo GetSessionForUsername(NTAccount username)
-        {
-            // You can only run a process as a user if they're logged on.
-            var userSessions = SessionManager.GetSessionInfo();
-            if (userSessions.Count == 0)
-            {
-                throw new InvalidOperationException("No user sessions are available to launch the process in.");
-            }
-
-            // You can only run a process as a user if they're active.
-            SessionInfo? session = null;
-            if (!username!.Value.Contains('\\'))
-            {
-                session = userSessions.FirstOrDefault(s => username.Value.Equals(s.UserName, StringComparison.OrdinalIgnoreCase));
-            }
-            else
-            {
-                session = userSessions.FirstOrDefault(s => s.NTAccount == username);
-            }
-            if (null == session)
-            {
-                throw new InvalidOperationException($"No session found for user {username}.");
-            }
-            if (session.ConnectState != WTS_CONNECTSTATE_CLASS.WTSActive)
-            {
-                throw new InvalidOperationException($"The session for user {username} is not active.");
-            }
-
-            // Return the session information for the user.
-            return session;
-        }
-
-        /// <summary>
-        /// Retrieves a primary token for the Explorer process with limited access rights.
-        /// </summary>
-        /// <remarks>This method obtains a token associated with the Explorer process and duplicates it to
-        /// create a primary token. The returned token can be used for operations requiring an unelevated
-        /// context.</remarks>
-        /// <returns>A <see cref="SafeFileHandle"/> representing the primary token for the Explorer process, or <see
-        /// langword="null"/> if the operation fails.</returns>
-        private static SafeFileHandle GetUnelevatedToken()
-        {
-            using (var cProcess = Process.GetProcessById((int)ShellUtilities.GetExplorerProcessId()))
-            using (cProcess.SafeHandle)
-            {
-                AdvApi32.OpenProcessToken(cProcess.SafeHandle, TOKEN_ACCESS_MASK.TOKEN_QUERY | TOKEN_ACCESS_MASK.TOKEN_DUPLICATE, out var hProcessToken);
-                using (hProcessToken)
-                {
-                    if (TokenManager.GetTokenSid(hProcessToken) != AccountUtilities.CallerSid)
-                    {
-                        throw new InvalidOperationException("Failed to retrieve an unelevated token for the calling account.");
-                    }
-                    if (TokenManager.IsTokenElevated(hProcessToken))
-                    {
-                        throw new InvalidOperationException("The calling account's shell is running elevated, therefore unable to get unelevated token.");
-                    }
-                    return TokenManager.GetPrimaryToken(hProcessToken);
-                }
-            }
         }
 
         /// <summary>
@@ -635,10 +525,9 @@ namespace PSADT.ProcessManagement
             }
 
             // Test whether the process is part of an existing job object.
-            using (var cProcess = Process.GetCurrentProcess())
-            using (cProcess.SafeHandle)
+            using (var cProcessSafeHandle = Kernel32.GetCurrentProcess())
             {
-                Kernel32.IsProcessInJob(cProcess.SafeHandle, null, out var inJob);
+                Kernel32.IsProcessInJob(cProcessSafeHandle, null, out var inJob);
                 if (!inJob)
                 {
                     return CreateProcessUsingTokenStatus.OK;

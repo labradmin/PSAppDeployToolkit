@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using PSADT.Extensions;
+using PSADT.FileSystem;
 
 namespace PSADT.ProcessManagement
 {
@@ -66,9 +67,17 @@ namespace PSADT.ProcessManagement
         public static string ArgumentListToCommandLine(IEnumerable<string> argv, bool strict = false)
         {
             // Consider a null or empty argument list as an error.
-            if (null == argv || argv.Count() == 0 || argv.Any(string.IsNullOrWhiteSpace))
+            if (null == argv)
             {
-                throw new ArgumentNullException(nameof(argv));
+                throw new ArgumentNullException("The specified enumerable is null.", (Exception?)null);
+            }
+            if (!argv.Any())
+            {
+                throw new ArgumentNullException("The specified enumerable is empty.", (Exception?)null);
+            }
+            if (argv.Any(string.IsNullOrWhiteSpace))
+            {
+                throw new ArgumentNullException("The specified enumerable contains null or empty arguments.", (Exception?)null);
             }
 
             // Construct and return the command line string.
@@ -279,41 +288,7 @@ namespace PSADT.ProcessManagement
         /// <returns>True if at the start of a unquoted DOS drive path, UNC path, or POSIX path.</returns>
         private static bool IsAtStartOfUnquotedPath(ReadOnlySpan<char> commandLine, int position)
         {
-            // We're at the start of nothing if we're at the end of the command line.
-            if (position >= commandLine.Length)
-            {
-                return false;
-            }
-
-            // Check for UNC path (starts with \\).
-            if (position + 1 < commandLine.Length && commandLine[position] == '\\' && commandLine[position + 1] == '\\')
-            {
-                // If the characters following the initial \\ are more backslashes followed by a quote,
-                // it's likely an escaped argument, not a UNC path. Let ParseSingleArgument handle it.
-                int p = position + 2;
-                while (p < commandLine.Length && commandLine[p] == '\\')
-                {
-                    p++;
-                }
-                if (p < commandLine.Length && commandLine[p] == '"')
-                {
-                    return false;
-                }
-                return true;
-            }
-
-            // Check for DOS drive path (starts with letter:\ or letter:/).
-            if (position + 2 < commandLine.Length && char.IsLetter(commandLine[position]) && commandLine[position + 1] == ':' && (commandLine[position + 2] == '\\' || commandLine[position + 2] == '/'))
-            {
-                return true;
-            }
-
-            // Check for POSIX path (starts with /letter/ where letter is a drive letter).
-            if (position + 2 < commandLine.Length && commandLine[position] == '/' && char.IsLetter(commandLine[position + 1]) && commandLine[position + 2] == '/')
-            {
-                return true;
-            }
-            return false;
+            return FileSystemUtilities.IsValidFilePath(commandLine, position);
         }
 
         /// <summary>

@@ -21,8 +21,17 @@ PACKAGE_VERSION_MAX_LENGTH
 PACKAGE_VERSION_MIN_LENGTH
 AssignProcessToJobObject
 AttachThreadInput
+AuthzAccessCheck
+AuthzInitializeContextFromSid
+AuthzInitializeContextFromToken
+AuthzInitializeResourceManager
+AUTHZ_RESOURCE_MANAGER_FLAGS
+AUTHZ_SKIP_TOKEN_GROUPS
+AUTHZ_REQUIRE_S4U_LOGON
+AUTHZ_COMPUTE_PRIVILEGES
 BringWindowToTop
 CloseHandle
+CreateFile
 CreateEnvironmentBlock
 CreateIoCompletionPort
 CreateJobObjectW
@@ -43,13 +52,17 @@ FILE_FLAGS_AND_ATTRIBUTES
 FindWindow
 GENERIC_MAPPING
 GetApplicationUserModelId
+GetCurrentProcess
+GetCurrentProcessId
 GetCurrentThreadId
 GetDpiForMonitor
 GetDpiForWindow
 GetExitCodeProcess
 GetExitCodeThread
 GetForegroundWindow
+GetLastInputInfo
 GetModuleInformation
+GetNamedSecurityInfo
 GetPrivateProfileSection
 GetPrivateProfileSectionNames
 GetPrivateProfileString
@@ -139,6 +152,7 @@ LocalFree
 LookupPrivilegeNameW
 LookupPrivilegeValueW
 LOWORD
+MAX_PATH
 MMDeviceEnumerator
 MONITORINFOEXW
 MONITORINFOF_PRIMARY
@@ -192,6 +206,7 @@ PROC_THREAD_ATTRIBUTE_ENABLE_OPTIONAL_XSTATE_FEATURES
 PROCESS_ACCESS_RIGHTS
 PROCESS_BASIC_INFORMATION
 PROCESS_INFORMATION
+ProcessIdToSessionId
 QueryDosDevice
 QueryInformationJobObject
 QueryServiceStatusEx
@@ -199,6 +214,7 @@ ReadProcessMemory
 RECT
 RegOpenKeyEx
 RegQueryInfoKey
+RegRenameKey
 ReleaseCapture
 RemoveMenu
 ResumeThread
@@ -292,7 +308,6 @@ SetFocus
 SetForegroundWindow
 SetInformationJobObject
 SetLastError
-SetPriorityClass
 SetSecurityInfo
 SHChangeNotify
 SHGetImageList

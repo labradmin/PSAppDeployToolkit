@@ -56,13 +56,13 @@ namespace PSADT.Types
             PSChildName = !string.IsNullOrWhiteSpace(psChildName) ? psChildName : throw new ArgumentNullException("PSChildName cannot be null or empty.", (Exception?)null);
             ProductCode = productCode;
             DisplayName = !string.IsNullOrWhiteSpace(displayName) ? displayName : throw new ArgumentNullException("DisplayName cannot be null or empty.", (Exception?)null);
-            DisplayVersion = displayVersion;
-            UninstallString = uninstallString;
-            QuietUninstallString = quietUninstallString;
+            DisplayVersion = !string.IsNullOrWhiteSpace(displayVersion) ? displayVersion : null;
+            UninstallString = !string.IsNullOrWhiteSpace(uninstallString) ? uninstallString : null;
+            QuietUninstallString = !string.IsNullOrWhiteSpace(quietUninstallString) ? quietUninstallString : null;
             InstallSource = installSource;
             InstallLocation = installLocation;
             InstallDate = installDate;
-            Publisher = publisher;
+            Publisher = !string.IsNullOrWhiteSpace(publisher) ? publisher : null;
             HelpLink = helpLink;
             EstimatedSize = estimatedSize;
             SystemComponent = systemComponent;
@@ -71,14 +71,20 @@ namespace PSADT.Types
             if (null != UninstallString)
             {
                 var argumentList = CommandLineUtilities.CommandLineToArgumentList(UninstallString);
-                UninstallStringFilePath = new FileInfo(argumentList[0]);
-                UninstallStringArgumentList = argumentList.Skip(1).ToList().AsReadOnly();
+                UninstallStringFilePath = new(argumentList[0]);
+                if (argumentList.Count > 1)
+                {
+                    UninstallStringArgumentList = argumentList.Skip(1).ToList().AsReadOnly();
+                }
             }
             if (null != QuietUninstallString)
             {
                 var argumentList = CommandLineUtilities.CommandLineToArgumentList(QuietUninstallString);
-                QuietUninstallStringFilePath = new FileInfo(argumentList[0]);
-                QuietUninstallStringArgumentList = argumentList.Skip(1).ToList().AsReadOnly();
+                QuietUninstallStringFilePath = new(argumentList[0]);
+                if (argumentList.Count > 1)
+                {
+                    QuietUninstallStringArgumentList = argumentList.Skip(1).ToList().AsReadOnly();
+                }
             }
         }
 

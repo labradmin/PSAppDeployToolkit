@@ -46,7 +46,7 @@ jobs:
       run: dotnet tool install --global azuresigntool
 
     - name: Azure Login
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/4.0.x'
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/4.0.x' || github.ref == 'refs/heads/4.1.x'
       uses: azure/login@v2
       with:
         client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -63,6 +63,7 @@ jobs:
         name: PSAppDeployToolkit_ModuleOnly
         path: .\src\Artifacts\Module
         if-no-files-found: error
+        compression-level: 9
         overwrite: true
 
     - name: Upload v3 module template
@@ -71,6 +72,7 @@ jobs:
         name: PSAppDeployToolkit_Template_v3
         path: .\src\Artifacts\Template_v3
         if-no-files-found: error
+        compression-level: 9
         overwrite: true
 
     - name: Upload v4 module template
@@ -79,10 +81,11 @@ jobs:
         name: PSAppDeployToolkit_Template_v4
         path: .\src\Artifacts\Template_v4
         if-no-files-found: error
+        compression-level: 9
         overwrite: true
 
     - name: Update Website Docs
-      if: github.ref == 'refs/heads/4.0.x' || github.ref == 'refs/heads/develop'
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/4.0.x' || github.ref == 'refs/heads/4.1.x'
       shell: powershell
       env:
         API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}

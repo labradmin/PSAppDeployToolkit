@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using PSADT.ProcessManagement;
 using PSADT.UserInterface.DialogOptions;
@@ -46,10 +47,13 @@ namespace PSADT.UserInterface.Dialogs.Classic
             {
                 // Set up main options.
                 this.labelWelcomeMessage.Text = StripFormattingTags(options.Strings.Classic.WelcomeMessage);
-                this.labelAppName.Text = StripFormattingTags(options.AppTitle.Replace("&", "&&"));
+                this.labelAppName.Text = StripFormattingTags(Regex.Replace(options.AppTitle, @"(?<!&)&(?!&)", "&&"));
                 this.labelCloseProcessesMessage.Text = StripFormattingTags(options.Strings.Classic.CloseAppsMessage);
                 this.labelDeferralExpiryMessage.Text = StripFormattingTags(options.Strings.Classic.ExpiryMessage);
                 this.labelDeferWarningMessage.Text = StripFormattingTags(options.Strings.Classic.ExpiryWarning);
+                this.buttonCloseProcesses.Text = StripFormattingTags(options.Strings.Classic.ButtonClose);
+                this.buttonDefer.Text = StripFormattingTags(options.Strings.Classic.ButtonDefer);
+                this.buttonContinue.Text = StripFormattingTags(options.Strings.Classic.ButtonContinue);
                 this.toolTipButtonContinue.RemoveAll();
                 hideCloseButton = options.HideCloseButton;
                 forcedCountdown = options.ForcedCountdown;
@@ -136,7 +140,7 @@ namespace PSADT.UserInterface.Dialogs.Classic
                 // Set the countdown timer.
                 if (null != countdownDuration)
                 {
-                    countdownTimer = new System.Threading.Timer(CountdownTimer_Tick, null, System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+                    countdownTimer = new(CountdownTimer_Tick, null, System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
                     countdownStopwatch = state.CountdownStopwatch;
                     if (this.richTextBoxCloseProcesses.Lines?.Length > 0)
                     {

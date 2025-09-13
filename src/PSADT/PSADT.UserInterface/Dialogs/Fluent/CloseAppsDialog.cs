@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Collections.Generic;
@@ -172,8 +173,8 @@ namespace PSADT.UserInterface.Dialogs.Fluent
                 ButtonRight.IsEnabled = timeRemaining > TimeSpan.Zero;
 
                 // Update text content
-                DateTimeFormatInfo dateTimeFormatInfo = new DateTimeFormatInfo();
-                DateTimeOffset deferralDeadlineOffset = new DateTimeOffset((DateTime)_deferralDeadline!);
+                DateTimeFormatInfo dateTimeFormatInfo = new();
+                DateTimeOffset deferralDeadlineOffset = new((DateTime)_deferralDeadline!);
                 string displayText = deferralDeadlineOffset.ToLocalTime().ToString("f");
                 if (ButtonRight.IsEnabled)
                 {
@@ -245,7 +246,7 @@ namespace PSADT.UserInterface.Dialogs.Fluent
                 ButtonLeft.IsEnabled = true;
                 if (_continueOnProcessClosure)
                 {
-                    ButtonLeft.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    ButtonLeft.RaiseEvent(new(Button.ClickEvent));
                 }
             }
         }
@@ -282,10 +283,6 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         protected override void ButtonLeft_Click(object sender, RoutedEventArgs e)
         {
             // Set the result and call base method to handle window closure.
-            if (_disposed)
-            {
-                return;
-            }
             if (AutomationProperties.GetName(ButtonLeft) == _buttonLeftText)
             {
                 DialogResult = CloseAppsDialogResult.Close;
@@ -305,10 +302,6 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         protected override void ButtonRight_Click(object sender, RoutedEventArgs e)
         {
             // Set the result and call base method to handle window closure.
-            if (_disposed)
-            {
-                return;
-            }
             DialogResult = CloseAppsDialogResult.Defer;
             base.ButtonRight_Click(sender, e);
         }
@@ -360,20 +353,31 @@ namespace PSADT.UserInterface.Dialogs.Fluent
             if (!_appIconCache.TryGetValue(appFilePath, out var bitmapSource))
             {
                 // Get the icon as a bitmap from the executable, then turn it into a BitmapSource.
-                using var drawingBitmap = DrawingUtilities.ExtractBitmapFromExecutable(appFilePath);
-                using SafeGdiObjectHandle hBitmap = new(drawingBitmap.GetHbitmap(), true);
-                bool hBitmapAddRef = false;
+                Bitmap drawingBitmap;
                 try
                 {
-                    hBitmap.DangerousAddRef(ref hBitmapAddRef);
-                    (bitmapSource = Imaging.CreateBitmapSourceFromHBitmap(hBitmap.DangerousGetHandle(), IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions())).Freeze();
-                    _appIconCache.Add(appFilePath, bitmapSource);
+                    drawingBitmap = DrawingUtilities.ExtractBitmapFromExecutable(appFilePath);
                 }
-                finally
+                catch
                 {
-                    if (hBitmapAddRef)
+                    drawingBitmap = SystemIcons.Get(DialogSystemIcon.Application);
+                }
+                using (drawingBitmap)
+                using (SafeGdiObjectHandle hBitmap = new(drawingBitmap.GetHbitmap(), true))
+                {
+                    bool hBitmapAddRef = false;
+                    try
                     {
-                        hBitmap.DangerousRelease();
+                        hBitmap.DangerousAddRef(ref hBitmapAddRef);
+                        (bitmapSource = Imaging.CreateBitmapSourceFromHBitmap(hBitmap.DangerousGetHandle(), IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions())).Freeze();
+                        _appIconCache.Add(appFilePath, bitmapSource);
+                    }
+                    finally
+                    {
+                        if (hBitmapAddRef)
+                        {
+                            hBitmap.DangerousRelease();
+                        }
                     }
                 }
             }
@@ -446,11 +450,6 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         private readonly BinaryWriter? _logWriter;
 
         /// <summary>
-        /// Whether this window has been disposed.
-        /// </summary>
-        private bool _disposed = false;
-
-        /// <summary>
         /// App/process icon cache for improved performance
         /// </summary>
         private static readonly Dictionary<string, BitmapSource> _appIconCache = [];
@@ -470,9 +469,9 @@ namespace PSADT.UserInterface.Dialogs.Fluent
                 {
                     _runningProcessService.ProcessesToCloseChanged -= RunningProcessService_ProcessesToCloseChanged;
                 }
+                AppsToCloseCollection.CollectionChanged -= AppsToCloseCollection_CollectionChanged;
             }
             base.Dispose(disposing);
-            _disposed = true;
         }
     }
 }

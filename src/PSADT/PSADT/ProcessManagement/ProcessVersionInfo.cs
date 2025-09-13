@@ -38,10 +38,7 @@ namespace PSADT.ProcessManagement
         /// </summary>
         /// <param name="process">The process for which to obtain version information. Cannot be null.</param>
         /// <returns>A <see cref="ProcessVersionInfo"/> object containing the version details of the specified process.</returns>
-        public static ProcessVersionInfo GetVersionInfo(Process process)
-        {
-            return new ProcessVersionInfo(process, null, null);
-        }
+        public static ProcessVersionInfo GetVersionInfo(Process process) => new(process, null, null);
 
         /// <summary>
         /// Retrieves version information for the specified process.
@@ -52,10 +49,7 @@ namespace PSADT.ProcessManagement
         /// <param name="ntPathLookupTable">A read-only dictionary that maps NT paths to their corresponding user-friendly paths. This is used to
         /// resolve paths within the process's version information.</param>
         /// <returns>A <see cref="ProcessVersionInfo"/> object containing the version details of the specified process.</returns>
-        internal static ProcessVersionInfo GetVersionInfo(Process process, ReadOnlyDictionary<string, string> ntPathLookupTable)
-        {
-            return new ProcessVersionInfo(process, null, ntPathLookupTable);
-        }
+        internal static ProcessVersionInfo GetVersionInfo(Process process, ReadOnlyDictionary<string, string> ntPathLookupTable) => new(process, null, ntPathLookupTable);
 
         /// <summary>
         /// Retrieves version information for a specified process and file path.
@@ -64,10 +58,7 @@ namespace PSADT.ProcessManagement
         /// <param name="filePath">The file path associated with the process, used to locate version details.</param>
         /// <returns>A <see cref="ProcessVersionInfo"/> object containing the version information of the specified process and
         /// file path.</returns>
-        internal static ProcessVersionInfo GetVersionInfo(Process process, string filePath)
-        {
-            return new ProcessVersionInfo(process, filePath, null);
-        }
+        internal static ProcessVersionInfo GetVersionInfo(Process process, string filePath) => new(process, filePath, null);
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ProcessVersionInfo"/> class for the specified process.
@@ -288,13 +279,10 @@ namespace PSADT.ProcessManagement
         {
             // Return any translation pairs found in the version resource.
             Version32.VerQueryValue(versionResource, @"\VarFileInfo\Translation", out var translationPtr, out var translationLength);
-            var pairCount = translationLength / 4;
-            for (int i = 0; i < pairCount; i++)
+            var langAndCodepageSize = Marshal.SizeOf<Version32.LANGANDCODEPAGE>();
+            for (int i = 0; i < translationLength / langAndCodepageSize; i++)
             {
-                var currentEntryPtr = IntPtr.Add(translationPtr, i * 4);
-                var language = Marshal.ReadInt16(currentEntryPtr, 0);
-                var codepage = Marshal.ReadInt16(currentEntryPtr, 2);
-                yield return $"{language:X4}{codepage:X4}";
+                yield return Marshal.PtrToStructure<Version32.LANGANDCODEPAGE>(IntPtr.Add(translationPtr, i * langAndCodepageSize)).ToTranslationTableString();
             }
 
             // Add some common fallback combinations that are known to work in many cases.
@@ -315,7 +303,7 @@ namespace PSADT.ProcessManagement
         /// otherwise, <see langword="null"/>.</returns>
         private static string? GetFileVersionLanguage(SafeHGlobalHandle versionResource, string codepage)
         {
-            Span<char> szLang = stackalloc char[260];
+            Span<char> szLang = stackalloc char[(int)PInvoke.MAX_PATH];
             var len = Kernel32.VerLanguageName(PInvoke.HIWORD(uint.Parse(codepage, NumberStyles.HexNumber)), szLang);
             string result = szLang.Slice(0, (int)len).ToString().TrimRemoveNull();
             if (!string.IsNullOrWhiteSpace(result))

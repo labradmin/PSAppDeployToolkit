@@ -18,10 +18,10 @@
         LoggingOptions = '/L*V'
 
         # Log path used for MSI logging. Uses the same path as Toolkit when null or empty.
-        LogPath = ''
+        LogPath = $null
 
         # Log path used for MSI logging when RequireAdmin is False. Uses the same path as Toolkit when null or empty.
-        LogPathNoAdminRights = ''
+        LogPathNoAdminRights = $null
 
         # The length of time in seconds to wait for the MSI installer service to become available. Default is 600 seconds (10 minutes).
         MutexWaitTime = 600
@@ -120,6 +120,7 @@
             Language Code    Language
             =============    ========
             ar               Arabic
+            bg               Bulgarian
             cs               Czech
             da               Danish
             de               German
@@ -133,6 +134,7 @@
             it               Italian
             ja               Japanese
             ko               Korean
+            lv               Latvian
             nl               Dutch
             nb               Norwegian (Bokmål)
             pl               Polish

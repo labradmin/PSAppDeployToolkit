@@ -16,8 +16,14 @@ function Close-ADTSession
     .PARAMETER ExitCode
         The exit code to set for the session.
 
+    .PARAMETER NoShellExit
+        Doesn't exit PowerShell upon closing of the final session.
+
     .PARAMETER Force
         Forcibly exits PowerShell upon closing of the final session.
+
+    .PARAMETER PassThru
+        Returns the exit code of the session being closed.
 
     .INPUTS
         None
@@ -51,15 +57,25 @@ function Close-ADTSession
         https://psappdeploytoolkit.com/docs/reference/functions/Close-ADTSession
     #>
 
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName = 'None')]
     param
     (
-        [Parameter(Mandatory = $false)]
+        [Parameter(Mandatory = $false, ParameterSetName = 'None')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'NoShellExit')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'Force')]
         [ValidateNotNullOrEmpty()]
         [System.Nullable[System.Int32]]$ExitCode,
 
-        [Parameter(Mandatory = $false)]
-        [System.Management.Automation.SwitchParameter]$Force
+        [Parameter(Mandatory = $true, ParameterSetName = 'NoShellExit')]
+        [System.Management.Automation.SwitchParameter]$NoShellExit,
+
+        [Parameter(Mandatory = $true, ParameterSetName = 'Force')]
+        [System.Management.Automation.SwitchParameter]$Force,
+
+        [Parameter(Mandatory = $false, ParameterSetName = 'None')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'NoShellExit')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'Force')]
+        [System.Management.Automation.SwitchParameter]$PassThru
     )
 
     begin
@@ -171,10 +187,20 @@ function Close-ADTSession
             $null = $Script:ADT.Sessions.Remove($adtSession)
         }
 
+        # Forcibly set the LASTEXITCODE so it's available if we're breaking
+        # or running Close-ADTSession from a PowerShell runspace, etc.
+        $Global:LASTEXITCODE = $ExitCode
+
         # Hand over to our backend closure routine if this was the last session.
         if (!$Script:ADT.Sessions.Count)
         {
-            Exit-ADTInvocation -ExitCode $ExitCode -NoShellExit:(!$adtSession.CanExitOnClose()) -Force:($Force -or ($Host.Name.Equals('ConsoleHost') -and ($preCloseErrors -or $postCloseErrors)))
+            Exit-ADTInvocation -ExitCode $ExitCode -NoShellExit:($NoShellExit -or !$adtSession.CanExitOnClose()) -Force:($Force -or ($Host.Name.Equals('ConsoleHost') -and ($preCloseErrors -or $postCloseErrors)))
+        }
+
+        # If we're still here and are to pass through the exit code, do so.
+        if ($PassThru)
+        {
+            return $ExitCode
         }
     }
 

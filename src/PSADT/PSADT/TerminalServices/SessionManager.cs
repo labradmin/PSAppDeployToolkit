@@ -8,7 +8,10 @@ using System.Security.Principal;
 using PSADT.AccountManagement;
 using PSADT.Extensions;
 using PSADT.LibraryInterfaces;
+using PSADT.Module;
+using PSADT.ProcessManagement;
 using PSADT.Security;
+using PSADT.Utilities;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.Security;
@@ -51,35 +54,37 @@ namespace PSADT.TerminalServices
         /// <returns></returns>
         internal static SessionInfo? GetSessionInfo(in WTS_SESSION_INFOW session)
         {
+            // Internal helper for retrieving session information values.
             static T? GetValue<T>(uint sessionId, WTS_INFO_CLASS infoClass)
             {
                 WtsApi32.WTSQuerySessionInformation(HANDLE.WTS_CURRENT_SERVER_HANDLE, sessionId, infoClass, out var pBuffer);
-                if (!pBuffer.IsInvalid)
+                using (pBuffer)
                 {
-                    using (pBuffer)
+                    if (typeof(T) == typeof(string))
                     {
-                        if (typeof(T) == typeof(string))
+                        if (pBuffer.ToStringUni()?.TrimRemoveNull() is string result && !string.IsNullOrWhiteSpace(result))
                         {
-                            if (pBuffer.ToStringUni()?.Trim() is string result && !string.IsNullOrWhiteSpace(result))
-                            {
-                                return (T)(object)result.TrimRemoveNull();
-                            }
+                            return (T)(object)result;
                         }
-                        if (typeof(T) == typeof(ushort))
-                        {
-                            return (T)(object)(ushort)pBuffer.ReadInt16();
-                        }
-                        else if (typeof(T) == typeof(uint))
-                        {
-                            return (T)(object)(uint)pBuffer.ReadInt32();
-                        }
-                        else if (typeof(T) == typeof(WTSINFOEXW))
-                        {
-                            return (T)(object)pBuffer.ToStructure<WTSINFOEXW>();
-                        }
+                        return default;
+                    }
+                    else if (typeof(T) == typeof(ushort))
+                    {
+                        return (T)(object)(ushort)pBuffer.ReadInt16();
+                    }
+                    else if (typeof(T) == typeof(uint))
+                    {
+                        return (T)(object)(uint)pBuffer.ReadInt32();
+                    }
+                    else if (typeof(T) == typeof(WTSINFOEXW))
+                    {
+                        return (T)(object)pBuffer.ToStructure<WTSINFOEXW>();
+                    }
+                    else
+                    {
+                        throw new NotSupportedException($"The type {typeof(T).FullName} is not supported by {nameof(GetValue)}.");
                     }
                 }
-                return default;
             }
 
             // Get extended information about the session, bombing out if we have no username (not a proper session).
@@ -93,8 +98,13 @@ namespace PSADT.TerminalServices
             string domainName = sessionInfo.DomainName.ToString().TrimRemoveNull();
             NTAccount ntAccount = new(domainName, userName);
             SecurityIdentifier sid = GetWtsSessionSid(session.SessionId, ntAccount);
+            bool isCurrentSession = session.SessionId == AccountUtilities.CallerSessionId;
+            bool isConsoleSession = session.SessionId == PInvoke.WTSGetActiveConsoleSessionId();
+            bool isActiveUserSession = sessionInfo.SessionState == Windows.Win32.System.RemoteDesktop.WTS_CONNECTSTATE_CLASS.WTSActive;
+            bool isValidUserSession = isActiveUserSession || sessionInfo.SessionState == Windows.Win32.System.RemoteDesktop.WTS_CONNECTSTATE_CLASS.WTSDisconnected;
+            TimeSpan? idleTime = DateTime.Now - DateTime.FromFileTime(sessionInfo.LastInputTime);
             string? clientName = GetValue<string>(session.SessionId, WTS_INFO_CLASS.WTSClientName);
-            string pWinStationName = session.pWinStationName.ToString().TrimRemoveNull();
+            string? pWinStationName = session.pWinStationName.ToString()?.TrimRemoveNull();
             ushort clientProtocolType = GetValue<ushort>(session.SessionId, WTS_INFO_CLASS.WTSClientProtocolType)!;
 
             // Determine whether the user is a local admin or not. This process can be unreliable for domain devices.
@@ -108,6 +118,29 @@ namespace PSADT.TerminalServices
                 isLocalAdminException = ex;
             }
 
+            // If there's an active console session and we've got the privileges, get the idle time via GetLastInputInfo().
+            if (isConsoleSession)
+            {
+                if (isCurrentSession)
+                {
+                    idleTime = ShellUtilities.GetLastInputTime();
+                }
+                else if ((AccountUtilities.CallerIsLocalSystem || AccountUtilities.CallerIsAdmin) && isValidUserSession)
+                {
+                    try
+                    {
+                        RunAsActiveUser user = new(ntAccount, sid, session.SessionId); AssemblyPermissions.Remediate(user);
+                        string clientServerPath = typeof(SessionInfo).Assembly.Location.Replace(".dll", ".ClientServer.Client.exe");
+                        ProcessLaunchInfo args = new(clientServerPath, new(["/GetLastInputTime"]), Environment.SystemDirectory, user, createNoWindow: true);
+                        idleTime = new(long.Parse(ProcessManager.LaunchAsync(args)!.Task.GetAwaiter().GetResult().StdOut!.First()));
+                    }
+                    catch
+                    {
+                        idleTime = null;
+                    }
+                }
+            }
+
             // Instantiate a SessionInfo object and return it to the caller.
             return new(
                 ntAccount,
@@ -117,16 +150,17 @@ namespace PSADT.TerminalServices
                 session.SessionId,
                 pWinStationName,
                 (LibraryInterfaces.WTS_CONNECTSTATE_CLASS)sessionInfo.SessionState,
-                session.SessionId == AccountUtilities.CallerSessionId,
-                session.SessionId == PInvoke.WTSGetActiveConsoleSessionId(),
-                sessionInfo.SessionState == Windows.Win32.System.RemoteDesktop.WTS_CONNECTSTATE_CLASS.WTSActive,
+                isCurrentSession,
+                isConsoleSession,
+                isActiveUserSession,
+                isValidUserSession,
                 pWinStationName != "Services" && pWinStationName != "RDP-Tcp",
                 clientProtocolType != 0,
                 isLocalAdmin,
                 isLocalAdminException,
                 DateTime.FromFileTime(sessionInfo.LogonTime),
-                DateTime.Now - DateTime.FromFileTime(sessionInfo.LastInputTime),
-                sessionInfo.DisconnectTime != 0 ? DateTime.FromFileTime(sessionInfo.DisconnectTime) : null,
+                idleTime,
+                sessionInfo.DisconnectTime != 0 && !isActiveUserSession ? DateTime.FromFileTime(sessionInfo.DisconnectTime) : null,
                 clientName,
                 (WTS_PROTOCOL_TYPE)clientProtocolType!,
                 GetValue<string>(session.SessionId, WTS_INFO_CLASS.WTSClientDirectory),
@@ -176,14 +210,25 @@ namespace PSADT.TerminalServices
             }
 
             // Attempt to get the SID from the caller's explorer.exe process if it exists.
-            if ((AccountUtilities.CallerIsAdmin || sessionid == AccountUtilities.CallerSessionId) && Process.GetProcessesByName("explorer").Where(p => p.SessionId == sessionid).OrderBy(static p => p.StartTime).FirstOrDefault() is Process explorerProcess)
+            if (AccountUtilities.CallerIsAdmin || sessionid == AccountUtilities.CallerSessionId)
             {
-                using (explorerProcess) using (explorerProcess.SafeHandle)
+                foreach (var explorerProcess in Process.GetProcessesByName("explorer").Where(p => p.SessionId == sessionid).OrderBy(static p => p.StartTime))
                 {
-                    AdvApi32.OpenProcessToken(explorerProcess.SafeHandle, TOKEN_ACCESS_MASK.TOKEN_QUERY, out var hProcessToken);
-                    using (hProcessToken)
+                    try
                     {
-                        return TokenManager.GetTokenSid(hProcessToken);
+                        using (explorerProcess) using (var explorerProcessSafeHandle = explorerProcess.SafeHandle)
+                        {
+                            AdvApi32.OpenProcessToken(explorerProcessSafeHandle, TOKEN_ACCESS_MASK.TOKEN_QUERY, out var hProcessToken);
+                            using (hProcessToken)
+                            {
+                                return TokenManager.GetTokenSid(hProcessToken);
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // It's possible the process may be inaccessible if Explorer is elevated by EPM but the caller is not.
+                        continue;
                     }
                 }
             }
@@ -217,7 +262,7 @@ namespace PSADT.TerminalServices
                     try
                     {
                         hPrimaryToken.DangerousAddRef(ref hPrimaryTokenAddRef);
-                        using var identity = new WindowsIdentity(hPrimaryToken.DangerousGetHandle());
+                        using WindowsIdentity identity = new(hPrimaryToken.DangerousGetHandle());
                         return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
                     }
                     finally

@@ -55,6 +55,9 @@ function Start-ADTMsiProcessAsUser
     .PARAMETER UseLinkedAdminToken
         Use a user's linked administrative token while running the process under their context.
 
+    .PARAMETER UseHighestAvailableToken
+        Use a user's linked administrative token if it's available while running the process under their context.
+
     .PARAMETER InheritEnvironmentVariables
         Specifies whether the process running as a user should inherit the SYSTEM account's environment variables.
 
@@ -159,10 +162,15 @@ function Start-ADTMsiProcessAsUser
     param
     (
         [Parameter(Mandatory = $false)]
+        [ValidateNotNullOrEmpty()]
+        [System.Security.Principal.NTAccount]$Username,
+
+        [Parameter(Mandatory = $false)]
         [ValidateSet('Install', 'Uninstall', 'Patch', 'Repair', 'ActiveSetup')]
         [System.String]$Action = 'Install',
 
         [Parameter(Mandatory = $true, ParameterSetName = 'FilePath', ValueFromPipeline = $true, HelpMessage = 'Please supply the path to the MSI/MSP file to process.')]
+        [Parameter(Mandatory = $true, ParameterSetName = 'FilePath_NoWait', ValueFromPipeline = $true, HelpMessage = 'Please supply the path to the MSI/MSP file to process.')]
         [ValidateScript({
                 if ([System.IO.Path]::GetExtension($_) -notmatch '^\.ms[ip]$')
                 {
@@ -173,10 +181,12 @@ function Start-ADTMsiProcessAsUser
         [System.String]$FilePath = [System.Management.Automation.Language.NullString]::Value,
 
         [Parameter(Mandatory = $true, ParameterSetName = 'ProductCode', ValueFromPipeline = $true, HelpMessage = 'Please supply the Product Code to process.')]
+        [Parameter(Mandatory = $true, ParameterSetName = 'ProductCode_NoWait', ValueFromPipeline = $true, HelpMessage = 'Please supply the Product Code to process.')]
         [ValidateNotNullOrEmpty()]
         [System.Guid]$ProductCode,
 
         [Parameter(Mandatory = $true, ParameterSetName = 'InstalledApplication', ValueFromPipeline = $true, HelpMessage = 'Please supply the InstalledApplication object to process.')]
+        [Parameter(Mandatory = $true, ParameterSetName = 'InstalledApplication_NoWait', ValueFromPipeline = $true, HelpMessage = 'Please supply the InstalledApplication object to process.')]
         [ValidateNotNullOrEmpty()]
         [PSADT.Types.InstalledApplication]$InstalledApplication,
 
@@ -205,11 +215,10 @@ function Start-ADTMsiProcessAsUser
         [System.String[]]$Patches,
 
         [Parameter(Mandatory = $false)]
-        [ValidateNotNullOrEmpty()]
-        [System.Security.Principal.NTAccount]$Username = (Get-ADTClientServerUser | Select-Object -ExpandProperty NTAccount),
+        [System.Management.Automation.SwitchParameter]$UseLinkedAdminToken,
 
         [Parameter(Mandatory = $false)]
-        [System.Management.Automation.SwitchParameter]$UseLinkedAdminToken,
+        [System.Management.Automation.SwitchParameter]$UseHighestAvailableToken,
 
         [Parameter(Mandatory = $false)]
         [System.Management.Automation.SwitchParameter]$InheritEnvironmentVariables,
@@ -248,15 +257,21 @@ function Start-ADTMsiProcessAsUser
         [Parameter(Mandatory = $false)]
         [System.Management.Automation.SwitchParameter]$IncludeUpdatesAndHotfixes,
 
-        [Parameter(Mandatory = $false)]
+        [Parameter(Mandatory = $false, ParameterSetName = 'FilePath')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'ProductCode')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'InstalledApplication')]
         [ValidateNotNullOrEmpty()]
         [System.Int32[]]$SuccessExitCodes,
 
-        [Parameter(Mandatory = $false)]
+        [Parameter(Mandatory = $false, ParameterSetName = 'FilePath')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'ProductCode')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'InstalledApplication')]
         [ValidateNotNullOrEmpty()]
         [System.Int32[]]$RebootExitCodes,
 
-        [Parameter(Mandatory = $false)]
+        [Parameter(Mandatory = $false, ParameterSetName = 'FilePath')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'ProductCode')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'InstalledApplication')]
         [ValidateNotNullOrEmpty()]
         [System.String[]]$IgnoreExitCodes,
 
@@ -264,13 +279,17 @@ function Start-ADTMsiProcessAsUser
         [ValidateNotNullOrEmpty()]
         [System.Diagnostics.ProcessPriorityClass]$PriorityClass,
 
-        [Parameter(Mandatory = $false)]
+        [Parameter(Mandatory = $false, ParameterSetName = 'FilePath')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'ProductCode')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'InstalledApplication')]
         [System.Management.Automation.SwitchParameter]$ExitOnProcessFailure,
 
         [Parameter(Mandatory = $false)]
         [System.Management.Automation.SwitchParameter]$NoDesktopRefresh,
 
-        [Parameter(Mandatory = $false)]
+        [Parameter(Mandatory = $true, ParameterSetName = 'FilePath_NoWait')]
+        [Parameter(Mandatory = $true, ParameterSetName = 'ProductCode_NoWait')]
+        [Parameter(Mandatory = $true, ParameterSetName = 'InstalledApplication_NoWait')]
         [System.Management.Automation.SwitchParameter]$NoWait,
 
         [Parameter(Mandatory = $false)]
@@ -279,24 +298,38 @@ function Start-ADTMsiProcessAsUser
 
     begin
     {
-        # Test whether there's a proper username to proceed with.
-        if (!$Username)
-        {
-            $naerParams = @{
-                Exception = [System.ArgumentNullException]::new('Username', "There is no logged on user to run a new process as.")
-                Category = [System.Management.Automation.ErrorCategory]::InvalidArgument
-                ErrorId = 'NoActiveUserError'
-                TargetObject = $Username
-                RecommendedAction = "Please re-run this command while a user is logged onto the device and try again."
-            }
-            $PSCmdlet.ThrowTerminatingError((New-ADTErrorRecord @naerParams))
-        }
-        $PSBoundParameters.Username = $Username
         Initialize-ADTFunction -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState
     }
 
     process
     {
+        # Convert the Username field into a RunAsActiveUser object as required by the subsystem.
+        $gacsuParams = @{}; if ($PSBoundParameters.ContainsKey('Username'))
+        {
+            $gacsuParams.Add('Username', $Username)
+            $gacsuParams.Add('AllowAnyValidSession', $true)
+        }
+        if (!($PSBoundParameters.RunAsActiveUser = Get-ADTClientServerUser @gacsuParams))
+        {
+            try
+            {
+                $naerParams = @{
+                    Exception = [System.ArgumentNullException]::new("Could not find a valid logged on user session$(if ($PSBoundParameters.ContainsKey('Username')) { " for [$Username]" }).", $null)
+                    Category = [System.Management.Automation.ErrorCategory]::InvalidArgument
+                    ErrorId = 'NoActiveUserError'
+                    TargetObject = $Username
+                    RecommendedAction = "Please re-run this command while a user is logged onto the device and try again."
+                }
+                Write-Error -ErrorRecord (New-ADTErrorRecord @naerParams)
+            }
+            catch
+            {
+                Invoke-ADTFunctionErrorHandler -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState -ErrorRecord $_
+                return
+            }
+        }
+        $null = $PSBoundParameters.Remove('Username')
+
         # Just farm it out to Start-ADTMsiProcess as it can do it all.
         try
         {

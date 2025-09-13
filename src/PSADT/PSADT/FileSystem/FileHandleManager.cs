@@ -89,8 +89,7 @@ namespace PSADT.FileSystem
                 }
 
                 // Set up required handles for GetObjectName().
-                using (var currentProcess = Process.GetCurrentProcess())
-                using (var currentProcessHandle = currentProcess.SafeHandle)
+                using (var currentProcessHandle = Kernel32.GetCurrentProcess())
                 {
                     // Loop through all handles and return list of open file handles.
                     var ntPathLookupTable = FileSystemUtilities.GetNtPathLookupTable();
@@ -157,7 +156,7 @@ namespace PSADT.FileSystem
                         string objectNameKey = $@"\{string.Join(@"\", objectName.Split(['\\'], StringSplitOptions.RemoveEmptyEntries).Take(2))}";
                         if (ntPathLookupTable.TryGetValue(objectNameKey, out string? driveLetter) && objectName.Replace(objectNameKey, driveLetter) is string dosPath && (null == directoryPath || dosPath.StartsWith(directoryPath, StringComparison.OrdinalIgnoreCase)))
                         {
-                            openHandles.Add(new FileHandleInfo(sysHandle, dosPath, objectName, objectType));
+                            openHandles.Add(new(sysHandle, dosPath, objectName, objectType));
                         }
                     });
                     return openHandles.ToList().AsReadOnly();
@@ -184,14 +183,13 @@ namespace PSADT.FileSystem
             }
 
             // Open each process handle, duplicate it with close source flag, then close the duplicated handle to close the original handle.
-            using (var currentProcess = Process.GetCurrentProcess())
-            using (currentProcess.SafeHandle)
+            using (var currentProcessHandle = Kernel32.GetCurrentProcess())
             {
                 foreach (var handleEntry in handleEntries)
                 {
                     using var fileProcessHandle = Kernel32.OpenProcess(PROCESS_ACCESS_RIGHTS.PROCESS_DUP_HANDLE, false, handleEntry.UniqueProcessId.ToUInt32());
                     using SafeFileHandle fileOpenHandle = new((HANDLE)handleEntry.HandleValue, false);
-                    Kernel32.DuplicateHandle(fileProcessHandle, fileOpenHandle, currentProcess.SafeHandle, out var localHandle, 0, false, DUPLICATE_HANDLE_OPTIONS.DUPLICATE_CLOSE_SOURCE);
+                    Kernel32.DuplicateHandle(fileProcessHandle, fileOpenHandle, currentProcessHandle, out var localHandle, 0, false, DUPLICATE_HANDLE_OPTIONS.DUPLICATE_CLOSE_SOURCE);
                     localHandle.Dispose();
                     localHandle = null;
                 }
@@ -223,7 +221,7 @@ namespace PSADT.FileSystem
                 using (hThread)
                 {
                     // Terminate the thread if it's taking longer than our timeout (NtQueryObject() has hung).
-                    if (PInvoke.WaitForSingleObject(hThread, GetObjectNameThreadTimeout) == WAIT_EVENT.WAIT_TIMEOUT)
+                    if (Kernel32.WaitForSingleObject(hThread, GetObjectNameThreadTimeout) == WAIT_EVENT.WAIT_TIMEOUT)
                     {
                         NtDll.NtTerminateThread(hThread, NTSTATUS.STATUS_TIMEOUT);
                     }

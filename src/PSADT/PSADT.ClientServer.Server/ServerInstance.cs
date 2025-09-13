@@ -4,10 +4,10 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
-using System.Security.Principal;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 using PSADT.AccountManagement;
 using PSADT.LibraryInterfaces;
 using PSADT.Module;
@@ -19,7 +19,7 @@ using PSADT.UserInterface.DialogOptions;
 using PSADT.UserInterface.DialogResults;
 using PSADT.UserInterface.Dialogs;
 using PSADT.WindowManagement;
-using Windows.Win32.Foundation;
+using Windows.Win32;
 using Windows.Win32.Security;
 using Windows.Win32.Security.Authorization;
 using Windows.Win32.System.Threading;
@@ -45,10 +45,10 @@ namespace PSADT.ClientServer
         /// <remarks>This constructor creates anonymous pipe streams for input and output communication.
         /// The input stream is configured for reading, while the output stream is configured for writing. The output
         /// stream is set to automatically flush data to ensure timely communication.</remarks>
-        public ServerInstance(NTAccount user)
+        public ServerInstance(RunAsActiveUser runAsActiveUser)
         {
             // Initialize the anonymous pipe streams for inter-process communication.
-            Username = user ?? throw new ArgumentNullException("User cannot be null.", (Exception?)null);
+            RunAsActiveUser = runAsActiveUser ?? throw new ArgumentNullException("User cannot be null.", (Exception?)null);
             _outputServer = new(PipeDirection.Out, HandleInheritability.Inheritable);
             _inputServer = new(PipeDirection.In, HandleInheritability.Inheritable);
             _logServer = new(PipeDirection.In, HandleInheritability.Inheritable);
@@ -73,23 +73,17 @@ namespace PSADT.ClientServer
                 _clientProcess = ProcessManager.LaunchAsync(new(
                     _assemblyLocation,
                     new(["/ClientServer", "-InputPipe", _outputServer.GetClientHandleAsString(), "-OutputPipe", _inputServer.GetClientHandleAsString(), "-LogPipe", _logServer.GetClientHandleAsString()]),
-                    null,
-                    Username,
-                    false,
-                    false,
-                    false,
-                    true,
-                    false,
-                    false,
-                    null,
-                    true,
-                    true,
-                    true,
-                    Encoding.UTF8,
-                    ProcessWindowStyle.Hidden,
-                    null,
-                    (_clientProcessCts = new()).Token,
-                    false
+                    Environment.SystemDirectory,
+                    RunAsActiveUser,
+                    UseLinkedAdminToken,
+                    UseHighestAvailableToken,
+                    inheritHandles: true,
+                    createNoWindow: true,
+                    waitForChildProcesses: true,
+                    killChildProcessesWithParent: true,
+                    streamEncoding: Encoding.UTF8,
+                    windowStyle: ProcessWindowStyle.Hidden,
+                    cancellationToken: (_clientProcessCts = new()).Token
                 ));
             }
             finally
@@ -99,53 +93,71 @@ namespace PSADT.ClientServer
                 _logServer.DisposeLocalCopyOfClientHandle();
             }
 
-            // If the process is being launched as a different user, modify the process security.
-            if (AccountUtilities.CallerUsername != Username && PrivilegeManager.HasPrivilege(SE_PRIVILEGE.SeSecurityPrivilege) && PrivilegeManager.HasPrivilege(SE_PRIVILEGE.SeTakeOwnershipPrivilege))
+            // If the client/server process isn't ours, we'll want to change the owner to ourselves if we can.
+            bool changeOwner = false;
+            if (RunAsActiveUser.SID != AccountUtilities.CallerSid && PrivilegeManager.HasPrivilege(SE_PRIVILEGE.SeSecurityPrivilege) && PrivilegeManager.HasPrivilege(SE_PRIVILEGE.SeTakeOwnershipPrivilege))
             {
-                // Ensure the caller has the necessary privileges to modify process security.
                 PrivilegeManager.EnablePrivilegeIfDisabled(SE_PRIVILEGE.SeSecurityPrivilege);
                 PrivilegeManager.EnablePrivilegeIfDisabled(SE_PRIVILEGE.SeTakeOwnershipPrivilege);
+                changeOwner = true;
+            }
 
-                // Create a restricted access control list (ACL) for the client process and set it.
-                var userIdentifier = (SecurityIdentifier)Username.Translate(typeof(SecurityIdentifier));
-                byte[] userSid = new byte[userIdentifier.BinaryLength]; userIdentifier.GetBinaryForm(userSid, 0);
-                using (SafePinnedGCHandle pinnedUserSid = SafePinnedGCHandle.Alloc(userSid))
+            // Create a restricted access control list (ACL) for the client process so the user can't terminate it.
+            byte[] userSid = new byte[RunAsActiveUser.SID.BinaryLength]; RunAsActiveUser.SID.GetBinaryForm(userSid, 0);
+            using (SafePinnedGCHandle pinnedUserSid = SafePinnedGCHandle.Alloc(userSid))
+            {
+                bool pinnedUserSidAddRef = false;
+                try
                 {
-                    bool pinnedUserSidAddRef = false;
-                    try
+                    // Generate an explicit access control entry (ACE) for the user SID.
+                    pinnedUserSid.DangerousAddRef(ref pinnedUserSidAddRef);
+                    var ea = new EXPLICIT_ACCESS_W
                     {
-                        // Generate an explicit access control entry (ACE) for the user SID.
-                        pinnedUserSid.DangerousAddRef(ref pinnedUserSidAddRef);
-                        var ea = new EXPLICIT_ACCESS_W
+                        grfAccessPermissions = (uint)(PROCESS_ACCESS_RIGHTS.PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_ACCESS_RIGHTS.PROCESS_SYNCHRONIZE),
+                        grfAccessMode = ACCESS_MODE.GRANT_ACCESS,
+                        grfInheritance = ACE_FLAGS.NO_INHERITANCE,
+                        Trustee = new TRUSTEE_W
                         {
-                            grfAccessPermissions = (uint)(PROCESS_ACCESS_RIGHTS.PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_ACCESS_RIGHTS.PROCESS_SYNCHRONIZE),
-                            grfAccessMode = ACCESS_MODE.GRANT_ACCESS,
-                            grfInheritance = ACE_FLAGS.NO_INHERITANCE,
-                            Trustee = new TRUSTEE_W
-                            {
-                                TrusteeForm = TRUSTEE_FORM.TRUSTEE_IS_SID,
-                                ptstrName = new PWSTR(pinnedUserSid.DangerousGetHandle())
-                            }
-                        };
-                        AdvApi32.SetEntriesInAcl([ea], IntPtr.Zero, out var pAcl);
+                            TrusteeForm = TRUSTEE_FORM.TRUSTEE_IS_SID,
+                            ptstrName = new(pinnedUserSid.DangerousGetHandle())
+                        }
+                    };
 
-                        // Set process owner to the caller and apply the ACL.
-                        try
+                    // Apply the ACL and potentially change the owner of the client process.
+                    AdvApi32.SetEntriesInAcl([ea], null, out var pAcl);
+                    using (SafeProcessHandle hProcess = new(_clientProcess!.Process.Handle, false))
+                    using (pAcl)
+                    {
+                        if (changeOwner)
                         {
                             byte[] callerSid = new byte[AccountUtilities.CallerSid.BinaryLength]; AccountUtilities.CallerSid.GetBinaryForm(callerSid, 0);
-                            AdvApi32.SetSecurityInfo(_clientProcess!.Process.SafeHandle, SE_OBJECT_TYPE.SE_KERNEL_OBJECT, OBJECT_SECURITY_INFORMATION.OWNER_SECURITY_INFORMATION | OBJECT_SECURITY_INFORMATION.DACL_SECURITY_INFORMATION, callerSid, null, pAcl, IntPtr.Zero);
+                            using SafePinnedGCHandle pinnedCallerSid = SafePinnedGCHandle.Alloc(callerSid);
+                            bool pinnedCallerSidAddRef = false;
+                            try
+                            {
+                                pinnedCallerSid.DangerousAddRef(ref pinnedCallerSidAddRef);
+                                using FreeSidSafeHandle pCallerSid = new(pinnedCallerSid.DangerousGetHandle(), false);
+                                AdvApi32.SetSecurityInfo(hProcess, SE_OBJECT_TYPE.SE_KERNEL_OBJECT, OBJECT_SECURITY_INFORMATION.OWNER_SECURITY_INFORMATION | OBJECT_SECURITY_INFORMATION.DACL_SECURITY_INFORMATION, pCallerSid, null, pAcl, null);
+                            }
+                            finally
+                            {
+                                if (pinnedCallerSidAddRef)
+                                {
+                                    pinnedCallerSid.DangerousRelease();
+                                }
+                            }
                         }
-                        finally
+                        else
                         {
-                            Kernel32.LocalFree((HLOCAL)pAcl);
+                            AdvApi32.SetSecurityInfo(hProcess, SE_OBJECT_TYPE.SE_KERNEL_OBJECT, OBJECT_SECURITY_INFORMATION.DACL_SECURITY_INFORMATION, null, null, pAcl, null);
                         }
                     }
-                    finally
+                }
+                finally
+                {
+                    if (pinnedUserSidAddRef)
                     {
-                        if (pinnedUserSidAddRef)
-                        {
-                            pinnedUserSid.DangerousRelease();
-                        }
+                        pinnedUserSid.DangerousRelease();
                     }
                 }
             }
@@ -207,11 +219,21 @@ namespace PSADT.ClientServer
                 if (null != _logWriterTaskCts && null != _logWriterTask)
                 {
                     _logWriterTaskCts.Cancel();
-                    _logWriterTask.GetAwaiter().GetResult();
-                    _logWriterTask.Dispose();
-                    _logWriterTask = null;
-                    _logWriterTaskCts.Dispose();
-                    _logWriterTaskCts = null;
+                    try
+                    {
+                        _logWriterTask.GetAwaiter().GetResult();
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        // The log writer task was canceled, which is expected when closing the server instance.
+                    }
+                    finally
+                    {
+                        _logWriterTask.Dispose();
+                        _logWriterTask = null;
+                        _logWriterTaskCts.Dispose();
+                        _logWriterTaskCts = null;
+                    }
                 }
 
                 // Close the client process and wait for it to exit.
@@ -219,12 +241,22 @@ namespace PSADT.ClientServer
                 {
                     _clientProcessCts.Cancel();
                 }
-                _clientProcess.Task.GetAwaiter().GetResult();
-                _clientProcess.Task.Dispose();
-                _clientProcess.Process.Dispose();
-                _clientProcess = null;
-                _clientProcessCts.Dispose();
-                _clientProcessCts = null;
+                try
+                {
+                    _clientProcess.Task.GetAwaiter().GetResult();
+                }
+                catch (TaskCanceledException)
+                {
+                    // The client process task was canceled, which is expected when closing the server instance.
+                }
+                finally
+                {
+                    _clientProcess.Task.Dispose();
+                    _clientProcess.Process.Dispose();
+                    _clientProcess = null;
+                    _clientProcessCts.Dispose();
+                    _clientProcessCts = null;
+                }
             }
         }
 
@@ -483,6 +515,40 @@ namespace PSADT.ClientServer
         }
 
         /// <summary>
+        /// Retrieves the value of a specified environment variable.
+        /// </summary>
+        /// <param name="variable"></param>
+        /// <returns></returns>
+        public string? GetEnvironmentVariable(string variable)
+        {
+            _logSource = "Get-ADTEnvironmentVariable";
+            return Invoke<string?>($"GetEnvironmentVariable{CommonUtilities.ArgumentSeparator}{variable}");
+        }
+
+        /// <summary>
+        /// Sets the value of a specified environment variable.
+        /// </summary>
+        /// <param name="variable"></param>
+        /// <param name="value"></param>
+        /// <returns></returns>
+        public bool SetEnvironmentVariable(string variable, string value)
+        {
+            _logSource = "Set-ADTEnvironmentVariable";
+            return Invoke<bool>($"SetEnvironmentVariable{CommonUtilities.ArgumentSeparator}{variable}{CommonUtilities.ArgumentSeparator}{value}");
+        }
+
+        /// <summary>
+        /// Removes a specified environment variable for the user.
+        /// </summary>
+        /// <param name="variable"></param>
+        /// <returns></returns>
+        public bool RemoveEnvironmentVariable(string variable)
+        {
+            _logSource = "Remove-ADTEnvironmentVariable";
+            return Invoke<bool>($"RemoveEnvironmentVariable{CommonUtilities.ArgumentSeparator}{variable}");
+        }
+
+        /// <summary>
         /// Retrieves the exception, if any, that occurred during the execution of the log writer task.
         /// </summary>
         /// <returns>An <see cref="AggregateException"/> containing the exceptions thrown by the log writer task,  or <see
@@ -669,12 +735,26 @@ namespace PSADT.ClientServer
         /// <remarks>This field stores details about the user's session, such as authentication or
         /// user-specific data. It is intended for internal use and should not be exposed directly to external
         /// consumers.</remarks>
-        public readonly NTAccount Username;
+        public readonly RunAsActiveUser RunAsActiveUser;
 
         /// <summary>
         /// Gets a value indicating whether the process is currently running.
         /// </summary>
         public bool IsRunning => null != _clientProcess && !_clientProcess.Process.HasExited;
+
+        /// <summary>
+        /// Indicates whether a linked administrator token should be used.
+        /// </summary>
+        /// <remarks>This constant is set to <see langword="false"/>, meaning that linked administrator
+        /// tokens are not utilized by default. This value is internal and cannot be modified.</remarks>
+        internal const bool UseLinkedAdminToken = false;
+
+        /// <summary>
+        /// Indicates whether the highest available token should be used.
+        /// </summary>
+        /// <remarks>This constant is set to <see langword="true"/> and is intended for internal use to
+        /// specify that the highest available token should be utilized in relevant operations.</remarks>
+        internal const bool UseHighestAvailableToken = true;
 
         /// <summary>
         /// Indicates whether the object has been disposed.

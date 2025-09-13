@@ -33,6 +33,9 @@ function Start-ADTProcessAsUser
     .PARAMETER UseLinkedAdminToken
         Use a user's linked administrative token while running the process under their context.
 
+    .PARAMETER UseHighestAvailableToken
+        Use a user's linked administrative token if it's available while running the process under their context.
+
     .PARAMETER InheritEnvironmentVariables
         Specifies whether the process running as a user should inherit the SYSTEM account's environment variables.
 
@@ -153,7 +156,7 @@ function Start-ADTProcessAsUser
     (
         [Parameter(Mandatory = $false)]
         [ValidateNotNullOrEmpty()]
-        [System.Security.Principal.NTAccount]$Username = (Get-ADTClientServerUser | Select-Object -ExpandProperty NTAccount),
+        [System.Security.Principal.NTAccount]$Username,
 
         [Parameter(Mandatory = $true)]
         [ValidateNotNullOrEmpty()]
@@ -172,6 +175,9 @@ function Start-ADTProcessAsUser
 
         [Parameter(Mandatory = $false)]
         [System.Management.Automation.SwitchParameter]$UseLinkedAdminToken,
+
+        [Parameter(Mandatory = $false)]
+        [System.Management.Automation.SwitchParameter]$UseHighestAvailableToken,
 
         [Parameter(Mandatory = $false)]
         [System.Management.Automation.SwitchParameter]$InheritEnvironmentVariables,
@@ -248,15 +254,27 @@ function Start-ADTProcessAsUser
         [Parameter(Mandatory = $false, ParameterSetName = 'Default_CreateNoWindow_Timeout')]
         [System.Management.Automation.SwitchParameter]$NoTerminateOnTimeout,
 
-        [Parameter(Mandatory = $false)]
+        [Parameter(Mandatory = $false, ParameterSetName = 'Default_CreateNoWindow_Timeout')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'Default_CreateNoWindow_Wait')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'Default_CreateWindow_Timeout')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'Default_WindowStyle_Timeout')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'Default_WindowStyle_Wait')]
         [ValidateNotNullOrEmpty()]
         [System.Int32[]]$SuccessExitCodes,
 
-        [Parameter(Mandatory = $false)]
+        [Parameter(Mandatory = $false, ParameterSetName = 'Default_CreateNoWindow_Timeout')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'Default_CreateNoWindow_Wait')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'Default_CreateWindow_Timeout')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'Default_WindowStyle_Timeout')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'Default_WindowStyle_Wait')]
         [ValidateNotNullOrEmpty()]
         [System.Int32[]]$RebootExitCodes,
 
-        [Parameter(Mandatory = $false)]
+        [Parameter(Mandatory = $false, ParameterSetName = 'Default_CreateNoWindow_Timeout')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'Default_CreateNoWindow_Wait')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'Default_CreateWindow_Timeout')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'Default_WindowStyle_Timeout')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'Default_WindowStyle_Wait')]
         [ValidateNotNullOrEmpty()]
         [SupportsWildcards()]
         [System.String[]]$IgnoreExitCodes,
@@ -265,7 +283,11 @@ function Start-ADTProcessAsUser
         [ValidateNotNullOrEmpty()]
         [System.Diagnostics.ProcessPriorityClass]$PriorityClass,
 
-        [Parameter(Mandatory = $false)]
+        [Parameter(Mandatory = $false, ParameterSetName = 'Default_CreateNoWindow_Timeout')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'Default_CreateNoWindow_Wait')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'Default_CreateWindow_Timeout')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'Default_WindowStyle_Timeout')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'Default_WindowStyle_Wait')]
         [System.Management.Automation.SwitchParameter]$ExitOnProcessFailure,
 
         # Wait Option: NoWait (only in sets where wait is "NoWait")
@@ -285,13 +307,18 @@ function Start-ADTProcessAsUser
 
     process
     {
-        # Test whether there's a proper username to proceed with.
-        if (!$Username)
+        # Convert the Username field into a RunAsActiveUser object as required by the subsystem.
+        $gacsuParams = @{}; if ($PSBoundParameters.ContainsKey('Username'))
+        {
+            $gacsuParams.Add('Username', $Username)
+            $gacsuParams.Add('AllowAnyValidSession', $true)
+        }
+        if (!($PSBoundParameters.RunAsActiveUser = Get-ADTClientServerUser @gacsuParams))
         {
             try
             {
                 $naerParams = @{
-                    Exception = [System.ArgumentNullException]::new('Username', "There is no logged on user to run a new process as.")
+                    Exception = [System.ArgumentNullException]::new("Could not find a valid logged on user session$(if ($PSBoundParameters.ContainsKey('Username')) { " for [$Username]" }).", $null)
                     Category = [System.Management.Automation.ErrorCategory]::InvalidArgument
                     ErrorId = 'NoActiveUserError'
                     TargetObject = $Username
@@ -305,7 +332,7 @@ function Start-ADTProcessAsUser
                 return
             }
         }
-        $PSBoundParameters.Username = $Username
+        $null = $PSBoundParameters.Remove('Username')
 
         # Just farm it out to Start-ADTProcess as it can do it all.
         try

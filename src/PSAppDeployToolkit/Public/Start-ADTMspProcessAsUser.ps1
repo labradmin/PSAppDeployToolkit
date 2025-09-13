@@ -27,6 +27,9 @@ function Start-ADTMspProcessAsUser
     .PARAMETER UseLinkedAdminToken
         Use a user's linked administrative token while running the process under their context.
 
+    .PARAMETER UseHighestAvailableToken
+        Use a user's linked administrative token if it's available while running the process under their context.
+
     .PARAMETER InheritEnvironmentVariables
         Specifies whether the process running as a user should inherit the SYSTEM account's environment variables.
 
@@ -69,6 +72,10 @@ function Start-ADTMspProcessAsUser
     [OutputType([System.Int32])]
     param
     (
+        [Parameter(Mandatory = $false)]
+        [ValidateNotNullOrEmpty()]
+        [System.Security.Principal.NTAccount]$Username,
+
         [Parameter(Mandatory = $true, HelpMessage = 'Please supply the path to the MSP file to process.')]
         [ValidateScript({
                 if ([System.IO.Path]::GetExtension($_) -notmatch '^\.msp$')
@@ -84,11 +91,10 @@ function Start-ADTMspProcessAsUser
         [System.String[]]$AdditionalArgumentList,
 
         [Parameter(Mandatory = $false)]
-        [ValidateNotNullOrEmpty()]
-        [System.Security.Principal.NTAccount]$Username = (Get-ADTClientServerUser | Select-Object -ExpandProperty NTAccount),
+        [System.Management.Automation.SwitchParameter]$UseLinkedAdminToken,
 
         [Parameter(Mandatory = $false)]
-        [System.Management.Automation.SwitchParameter]$UseLinkedAdminToken,
+        [System.Management.Automation.SwitchParameter]$UseHighestAvailableToken,
 
         [Parameter(Mandatory = $false)]
         [System.Management.Automation.SwitchParameter]$InheritEnvironmentVariables,
@@ -99,24 +105,38 @@ function Start-ADTMspProcessAsUser
 
     begin
     {
-        # Test whether there's a proper username to proceed with.
-        if (!$Username)
-        {
-            $naerParams = @{
-                Exception = [System.ArgumentNullException]::new('Username', "There is no logged on user to run a new process as.")
-                Category = [System.Management.Automation.ErrorCategory]::InvalidArgument
-                ErrorId = 'NoActiveUserError'
-                TargetObject = $Username
-                RecommendedAction = "Please re-run this command while a user is logged onto the device and try again."
-            }
-            $PSCmdlet.ThrowTerminatingError((New-ADTErrorRecord @naerParams))
-        }
-        $PSBoundParameters.Username = $Username
         Initialize-ADTFunction -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState
     }
 
     process
     {
+        # Convert the Username field into a RunAsActiveUser object as required by the subsystem.
+        $gacsuParams = @{}; if ($PSBoundParameters.ContainsKey('Username'))
+        {
+            $gacsuParams.Add('Username', $Username)
+            $gacsuParams.Add('AllowAnyValidSession', $true)
+        }
+        if (!($PSBoundParameters.RunAsActiveUser = Get-ADTClientServerUser @gacsuParams))
+        {
+            try
+            {
+                $naerParams = @{
+                    Exception = [System.ArgumentNullException]::new("Could not find a valid logged on user session$(if ($PSBoundParameters.ContainsKey('Username')) { " for [$Username]" }).", $null)
+                    Category = [System.Management.Automation.ErrorCategory]::InvalidArgument
+                    ErrorId = 'NoActiveUserError'
+                    TargetObject = $Username
+                    RecommendedAction = "Please re-run this command while a user is logged onto the device and try again."
+                }
+                Write-Error -ErrorRecord (New-ADTErrorRecord @naerParams)
+            }
+            catch
+            {
+                Invoke-ADTFunctionErrorHandler -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState -ErrorRecord $_
+                return
+            }
+        }
+        $null = $PSBoundParameters.Remove('Username')
+
         # Just farm it out to Start-ADTMspProcessAsUser as it can do it all.
         try
         {
