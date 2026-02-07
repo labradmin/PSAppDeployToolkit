@@ -64,6 +64,9 @@ function Start-ADTMsiProcessAsUser
     .PARAMETER ExpandEnvironmentVariables
         Specifies whether to expand any Windows/DOS-style environment variables in the specified FilePath/ArgumentList.
 
+    .PARAMETER DenyUserTermination
+        Specifies that users cannot terminate the process started in their context. The user will still be able to terminate the process if they're an administrator, though.
+
     .PARAMETER LoggingOptions
         Overrides the default logging options specified in the config.psd1 file.
 
@@ -149,20 +152,23 @@ function Start-ADTMsiProcessAsUser
     .NOTES
         An active ADT session is NOT required to use this function.
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
         https://psappdeploytoolkit.com/docs/reference/functions/Start-ADTMsiProcessAsUser
     #>
 
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param
     (
         [Parameter(Mandatory = $false)]
         [ValidateNotNullOrEmpty()]
+        [PSDefaultValue(Help = '$RunAsActiveUser.UserName')]
         [System.Security.Principal.NTAccount]$Username,
 
         [Parameter(Mandatory = $false)]
@@ -225,6 +231,9 @@ function Start-ADTMsiProcessAsUser
 
         [Parameter(Mandatory = $false)]
         [System.Management.Automation.SwitchParameter]$ExpandEnvironmentVariables,
+
+        [Parameter(Mandatory = $false)]
+        [System.Management.Automation.SwitchParameter]$DenyUserTermination,
 
         [Parameter(Mandatory = $false)]
         [ValidateNotNullOrEmpty()]
@@ -331,9 +340,16 @@ function Start-ADTMsiProcessAsUser
         $null = $PSBoundParameters.Remove('Username')
 
         # Just farm it out to Start-ADTMsiProcess as it can do it all.
+        if (!$PSCmdlet.ShouldProcess($(if ($FilePath) { "MSI/MSP [$FilePath] as user [$($runAsActiveUser.NTAccount)]" } elseif ($ProductCode) { "MSI ProductCode [$ProductCode] as user [$($runAsActiveUser.NTAccount)]" } else { "MSI as user [$($runAsActiveUser.NTAccount)]" }), $Action))
+        {
+            return
+        }
         try
         {
-            return Start-ADTMsiProcess @PSBoundParameters
+            if (($result = Start-ADTMsiProcess @PSBoundParameters) -and $PassThru)
+            {
+                return $result
+            }
         }
         catch
         {

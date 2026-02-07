@@ -47,7 +47,7 @@ function Get-ADTShortcut
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -61,7 +61,7 @@ function Get-ADTShortcut
     (
         [Parameter(Mandatory = $true, Position = 0)]
         [ValidateScript({
-                if (!(Test-Path -LiteralPath $_ -PathType Leaf) -or (![System.IO.Path]::GetExtension($_).ToLower().Equals('.lnk') -and ![System.IO.Path]::GetExtension($_).ToLower().Equals('.url')))
+                if (!(Test-Path -LiteralPath $_ -PathType Leaf) -or (![System.IO.Path]::GetExtension($_).ToLowerInvariant().Equals('.lnk') -and ![System.IO.Path]::GetExtension($_).ToLowerInvariant().Equals('.url')))
                 {
                     $PSCmdlet.ThrowTerminatingError((New-ADTValidateScriptErrorRecord -ParameterName Path -ProvidedValue $_ -ExceptionMessage 'The specified path does not exist or does not have the correct extension.'))
                 }
@@ -126,7 +126,7 @@ function Get-ADTShortcut
                 else
                 {
                     $shortcut = [System.Activator]::CreateInstance([System.Type]::GetTypeFromProgID('WScript.Shell')).CreateShortcut($Output.Path)
-                    $Output.IconLocation, $Output.IconIndex = $shortcut.IconLocation.Split(',')
+                    $Output.IconLocation, $Output.IconIndex = $shortcut.IconLocation.Split(',').Trim()
                     return [PSADT.Types.ShortcutLnk]::new(
                         $Output.Path,
                         $shortcut.TargetPath,

@@ -56,6 +56,11 @@ https://psappdeploytoolkit.com
 
 #>
 
+[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'DeploymentType', Justification = 'This parameter is used via $PSBoundParameters, which PSScriptAnalyzer has no understanding of.')]
+[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'DeployMode', Justification = 'This parameter is used via $PSBoundParameters, which PSScriptAnalyzer has no understanding of.')]
+[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'SuppressRebootPassThru', Justification = 'This parameter is used via $PSBoundParameters, which PSScriptAnalyzer has no understanding of.')]
+[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'TerminalServerMode', Justification = 'This parameter is used via $PSBoundParameters, which PSScriptAnalyzer has no understanding of.')]
+[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'DisableLogging', Justification = 'This parameter is used via $PSBoundParameters, which PSScriptAnalyzer has no understanding of.')]
 [CmdletBinding()]
 param
 (
@@ -179,11 +184,11 @@ try
     if (Test-Path -LiteralPath "$PSScriptRoot\PSAppDeployToolkit\PSAppDeployToolkit.psd1" -PathType Leaf)
     {
         Get-ChildItem -LiteralPath "$PSScriptRoot\PSAppDeployToolkit" -Recurse -File | Unblock-File -ErrorAction Ignore
-        Import-Module -FullyQualifiedName @{ ModuleName = "$PSScriptRoot\PSAppDeployToolkit\PSAppDeployToolkit.psd1"; Guid = '8c3c366b-8606-4576-9f2d-4051144f7ca2'; ModuleVersion = '4.1.5' } -Force
+        Import-Module -FullyQualifiedName @{ ModuleName = "$PSScriptRoot\PSAppDeployToolkit\PSAppDeployToolkit.psd1"; Guid = '8c3c366b-8606-4576-9f2d-4051144f7ca2'; ModuleVersion = '4.2.0' } -Force
     }
     else
     {
-        Import-Module -FullyQualifiedName @{ ModuleName = 'PSAppDeployToolkit'; Guid = '8c3c366b-8606-4576-9f2d-4051144f7ca2'; ModuleVersion = '4.1.5' } -Force
+        Import-Module -FullyQualifiedName @{ ModuleName = 'PSAppDeployToolkit'; Guid = '8c3c366b-8606-4576-9f2d-4051144f7ca2'; ModuleVersion = '4.2.0' } -Force
     }
 
     # Open a new deployment session, replacing $adtSession with a DeploymentSession.

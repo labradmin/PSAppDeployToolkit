@@ -21,6 +21,9 @@ function Start-ADTMspProcess
     .PARAMETER AdditionalArgumentList
         Additional parameters.
 
+    .PARAMETER SecureArgumentList
+        Hides all parameters passed to the MSI or MSP file from the toolkit log file.
+
     .PARAMETER RunAsActiveUser
         A RunAsActiveUser object to invoke the process as.
 
@@ -33,11 +36,46 @@ function Start-ADTMspProcess
     .PARAMETER InheritEnvironmentVariables
         Specifies whether the process running as a user should inherit the SYSTEM account's environment variables.
 
+    .PARAMETER DenyUserTermination
+        Specifies that users cannot terminate the process started in their context. The user will still be able to terminate the process if they're an administrator, though.
+
     .PARAMETER UseUnelevatedToken
         If the current process is elevated, starts the new process unelevated using the user's unelevated linked token.
 
     .PARAMETER ExpandEnvironmentVariables
         Specifies whether to expand any Windows/DOS-style environment variables in the specified FilePath/ArgumentList.
+
+    .PARAMETER LoggingOptions
+        Overrides the default logging options specified in the config.psd1 file.
+
+    .PARAMETER LogFileName
+        Overrides the default log file name. The default log file name is generated from the MSI file name. If LogFileName does not end in .log, it will be automatically appended.
+
+        For uninstallations, by default the product code is resolved to the DisplayName and version of the application.
+
+    .PARAMETER SuccessExitCodes
+        List of exit codes to be considered successful. Defaults to values set during ADTSession initialization, otherwise: 0
+
+    .PARAMETER RebootExitCodes
+        List of exit codes to indicate a reboot is required. Defaults to values set during ADTSession initialization, otherwise: 1641, 3010
+
+    .PARAMETER IgnoreExitCodes
+        List the exit codes to ignore or * to ignore all exit codes.
+
+    .PARAMETER PriorityClass
+        Specifies priority class for the process. Options: Idle, Normal, High, AboveNormal, BelowNormal, RealTime.
+
+    .PARAMETER ExitOnProcessFailure
+        Automatically closes the active deployment session via Close-ADTSession in the event the process exits with a non-success or non-ignored exit code.
+
+    .PARAMETER NoDesktopRefresh
+        If specifies, doesn't refresh the desktop and environment after successful MSI installation.
+
+    .PARAMETER NoWait
+        Immediately continue after executing the process.
+
+    .PARAMETER PassThru
+        Returns ExitCode, StdOut, and StdErr output from the process. Note that a failed execution will only return an object if either `-ErrorAction` is set to `SilentlyContinue`/`Ignore`, or if `-IgnoreExitCodes`/`-SuccessExitCodes` are used.
 
     .INPUTS
         None
@@ -62,16 +100,18 @@ function Start-ADTMspProcess
     .NOTES
         An active ADT session is NOT required to use this function.
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
         https://psappdeploytoolkit.com/docs/reference/functions/Start-ADTMspProcess
     #>
 
-    [CmdletBinding(DefaultParameterSetName = 'None')]
+    [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = 'None')]
     [OutputType([System.Int32])]
     param
     (
@@ -89,9 +129,12 @@ function Start-ADTMspProcess
         [ValidateNotNullOrEmpty()]
         [System.String[]]$AdditionalArgumentList,
 
+        [Parameter(Mandatory = $false)]
+        [System.Management.Automation.SwitchParameter]$SecureArgumentList,
+
         [Parameter(Mandatory = $true, ParameterSetName = 'RunAsActiveUser')]
         [ValidateNotNullOrEmpty()]
-        [PSADT.Module.RunAsActiveUser]$RunAsActiveUser,
+        [PSADT.Foundation.RunAsActiveUser]$RunAsActiveUser,
 
         [Parameter(Mandatory = $false, ParameterSetName = 'RunAsActiveUser')]
         [System.Management.Automation.SwitchParameter]$UseLinkedAdminToken,
@@ -102,75 +145,80 @@ function Start-ADTMspProcess
         [Parameter(Mandatory = $false, ParameterSetName = 'RunAsActiveUser')]
         [System.Management.Automation.SwitchParameter]$InheritEnvironmentVariables,
 
+        [Parameter(Mandatory = $false, ParameterSetName = 'RunAsActiveUser')]
+        [System.Management.Automation.SwitchParameter]$DenyUserTermination,
+
         [Parameter(Mandatory = $true, ParameterSetName = 'UseUnelevatedToken')]
         [System.Management.Automation.SwitchParameter]$UseUnelevatedToken,
 
         [Parameter(Mandatory = $false)]
-        [System.Management.Automation.SwitchParameter]$ExpandEnvironmentVariables
+        [System.Management.Automation.SwitchParameter]$ExpandEnvironmentVariables,
+
+        [Parameter(Mandatory = $false)]
+        [ValidateNotNullOrEmpty()]
+        [System.String]$LoggingOptions = [System.Management.Automation.Language.NullString]::Value,
+
+        [Parameter(Mandatory = $false)]
+        [ValidateScript({
+                if ([System.String]::IsNullOrWhiteSpace($_))
+                {
+                    $PSCmdlet.ThrowTerminatingError((New-ADTValidateScriptErrorRecord -ParameterName LogFileName -ProvidedValue $_ -ExceptionMessage 'The specified input is null or white space.'))
+                }
+                return $true
+            })]
+        [System.String]$LogFileName = [System.Management.Automation.Language.NullString]::Value,
+
+        [Parameter(Mandatory = $false)]
+        [ValidateNotNullOrEmpty()]
+        [System.Int32[]]$SuccessExitCodes,
+
+        [Parameter(Mandatory = $false)]
+        [ValidateNotNullOrEmpty()]
+        [System.Int32[]]$RebootExitCodes,
+
+        [Parameter(Mandatory = $false)]
+        [ValidateNotNullOrEmpty()]
+        [System.String[]]$IgnoreExitCodes,
+
+        [Parameter(Mandatory = $false)]
+        [ValidateNotNullOrEmpty()]
+        [System.Diagnostics.ProcessPriorityClass]$PriorityClass,
+
+        [Parameter(Mandatory = $false)]
+        [System.Management.Automation.SwitchParameter]$ExitOnProcessFailure,
+
+        [Parameter(Mandatory = $false)]
+        [System.Management.Automation.SwitchParameter]$NoDesktopRefresh,
+
+        [Parameter(Mandatory = $false)]
+        [System.Management.Automation.SwitchParameter]$NoWait,
+
+        [Parameter(Mandatory = $false)]
+        [System.Management.Automation.SwitchParameter]$PassThru
     )
 
     begin
     {
-        $adtSession = Initialize-ADTModuleIfUnitialized -Cmdlet $PSCmdlet
         Initialize-ADTFunction -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState
     }
 
     process
     {
+        # Just proxy this through to `Start-ADTMsiProcess` as it does everything.
+        if (!$PSCmdlet.ShouldProcess("MSP file [$FilePath]", 'Patch'))
+        {
+            return
+        }
         try
         {
-            try
+            if (($result = Start-ADTMsiProcess -Action Patch @PSBoundParameters) -and $PassThru)
             {
-                # If the MSP is in the Files directory, set the full path to the MSP.
-                $mspFile = if ($adtSession -and (Test-Path -LiteralPath ($dirFilesPath = (Join-Path -Path $adtSession.DirFiles -ChildPath $FilePath).Trim()) -PathType Leaf))
-                {
-                    $dirFilesPath
-                }
-                elseif (Test-Path -LiteralPath $FilePath)
-                {
-                    (Get-Item -LiteralPath $FilePath).FullName
-                }
-                else
-                {
-                    Write-ADTLogEntry -Message "Failed to find MSP file [$FilePath]." -Severity 3
-                    $naerParams = @{
-                        Exception = [System.IO.FileNotFoundException]::new("Failed to find MSP file [$FilePath].")
-                        Category = [System.Management.Automation.ErrorCategory]::ObjectNotFound
-                        ErrorId = 'MsiFileNotFound'
-                        TargetObject = $FilePath
-                        RecommendedAction = "Please confirm the path of the MSP file and try again."
-                    }
-                    throw (New-ADTErrorRecord @naerParams)
-                }
-
-                # Create a Windows Installer object and open the database in read-only mode.
-                Write-ADTLogEntry -Message 'Checking MSP file for valid product codes.'
-                [__ComObject]$Installer = New-Object -ComObject WindowsInstaller.Installer
-                [__ComObject]$Database = Invoke-ADTObjectMethod -InputObject $Installer -MethodName OpenDatabase -ArgumentList @($mspFile, 32)
-
-                # Get the SummaryInformation from the Windows Installer database and store all product codes found.
-                [__ComObject]$SummaryInformation = Get-ADTObjectProperty -InputObject $Database -PropertyName SummaryInformation
-                $AllTargetedProductCodes = Get-ADTApplication -ProductCode (Get-ADTObjectProperty -InputObject $SummaryInformation -PropertyName Property -ArgumentList @(7)).Split(';')
-
-                # Free our COM objects.
-                $null = [System.Runtime.InteropServices.Marshal]::ReleaseComObject($SummaryInformation)
-                $null = [System.Runtime.InteropServices.Marshal]::ReleaseComObject($Database)
-                $null = [System.Runtime.InteropServices.Marshal]::ReleaseComObject($Installer)
-
-                # If the application is installed, patch it.
-                if ($AllTargetedProductCodes)
-                {
-                    Start-ADTMsiProcess -Action Patch @PSBoundParameters
-                }
-            }
-            catch
-            {
-                Write-Error -ErrorRecord $_
+                return $result
             }
         }
         catch
         {
-            Invoke-ADTFunctionErrorHandler -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState -ErrorRecord $_
+            $PSCmdlet.ThrowTerminatingError($_)
         }
     }
 

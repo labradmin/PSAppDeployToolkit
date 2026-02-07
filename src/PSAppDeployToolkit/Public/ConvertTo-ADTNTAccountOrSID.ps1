@@ -68,7 +68,7 @@ function ConvertTo-ADTNTAccountOrSID
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -137,7 +137,7 @@ function ConvertTo-ADTNTAccountOrSID
                 # Device likely is off the domain network and had no line of sight to a domain controller.
                 # Attempt to rummage through the group policy cache and see what's available to us.
                 # Failing this, throw out the original error as there's not much we can do otherwise.
-                if (!($TargetNtAccount = [PSADT.AccountManagement.GroupPolicyAccountInfo]::Get() | & { if ($_.SID.Equals($TargetSid)) { return $_.Username } } | Select-Object -First 1))
+                if (!($TargetNtAccount = [PSADT.AccountManagement.GroupPolicyAccountInfo]::Get() | & { process { if ($_.SID.Equals($TargetSid)) { return $_.Username } } } | Select-Object -First 1))
                 {
                     throw
                 }
@@ -179,7 +179,7 @@ function ConvertTo-ADTNTAccountOrSID
         {
             try
             {
-                [System.Security.Principal.SecurityIdentifier]::new([System.DirectoryServices.DirectoryEntry]::new("$LdapUri$((Get-CimInstance -ClassName Win32_ComputerSystem).Domain.ToLower())").ObjectSid[0], 0)
+                [System.Security.Principal.SecurityIdentifier]::new([System.DirectoryServices.DirectoryEntry]::new("$LdapUri$((Get-CimInstance -ClassName Win32_ComputerSystem).Domain.ToLowerInvariant())").ObjectSid[0], 0)
             }
             catch
             {

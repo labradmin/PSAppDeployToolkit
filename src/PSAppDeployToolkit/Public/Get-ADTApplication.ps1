@@ -88,7 +88,7 @@ function Get-ADTApplication
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -166,6 +166,9 @@ function Get-ADTApplication
                 }
             }
         }
+
+        # Define compiled regex for use throughout main loop.
+        $updatesAndHotFixesRegex = [System.Text.RegularExpressions.Regex]::new('((?i)kb\d+|(Cumulative|Security) Update|Hotfix)', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Compiled)
     }
 
     process
@@ -196,14 +199,30 @@ function Get-ADTApplication
                     }
 
                     # Bypass any updates or hotfixes.
-                    if (!$IncludeUpdatesAndHotfixes -and ($appDisplayName -match '((?i)kb\d+|(Cumulative|Security) Update|Hotfix)'))
+                    if (!$IncludeUpdatesAndHotfixes -and $updatesAndHotFixesRegex.Matches($appDisplayName).Count)
                     {
                         $updatesSkippedCounter++
                         continue
                     }
 
+                    # Apply name filter if specified.
+                    if ($nameFilterScript -and !(& $nameFilterScript))
+                    {
+                        continue
+                    }
+
+                    # Grab all available uninstall string.
+                    if (($uninstallString = $item.GetValue('UninstallString', $null)) -and [System.String]::IsNullOrWhiteSpace($uninstallString.Replace('"', [System.Management.Automation.Language.NullString]::Value)))
+                    {
+                        $uninstallString = $null
+                    }
+                    if (($quietUninstallString = $item.GetValue('QuietUninstallString', $null)) -and [System.String]::IsNullOrWhiteSpace($quietUninstallString.Replace('"', [System.Management.Automation.Language.NullString]::Value)))
+                    {
+                        $quietUninstallString = $null
+                    }
+
                     # Apply application type filter if specified.
-                    $windowsInstaller = $item.GetValue('WindowsInstaller', $false)
+                    $windowsInstaller = $item.GetValue('WindowsInstaller', $false) -or ($uninstallString -match 'msiexec') -or ($quietUninstallString -match 'msiexec')
                     if ((($ApplicationType -eq 'MSI') -and !$windowsInstaller) -or (($ApplicationType -eq 'EXE') -and $windowsInstaller))
                     {
                         continue
@@ -216,12 +235,6 @@ function Get-ADTApplication
                         continue
                     }
 
-                    # Apply name filter if specified.
-                    if ($nameFilterScript -and !(& $nameFilterScript))
-                    {
-                        continue
-                    }
-
                     # Determine the install date. If the key has a valid property, we use it. If not, we get the LastWriteDate for the key from the registry.
                     if (![System.DateTime]::TryParseExact($item.GetValue('InstallDate', $null), 'yyyyMMdd', [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$installDate))
                     {
@@ -229,21 +242,13 @@ function Get-ADTApplication
                     }
 
                     # Build hashtable of calculated properties based on their presence in the registry and the value's validity.
-                    $appProperties = 'DisplayVersion', 'UninstallString', 'QuietUninstallString', 'Publisher', 'EstimatedSize' | & {
-                        begin
-                        {
-                            $collector = @{}
-                        }
+                    $appProperties = @{}; 'DisplayVersion', 'Publisher', 'EstimatedSize' | & {
                         process
                         {
                             if (![System.String]::IsNullOrWhiteSpace(($value = $item.GetValue($_, $null))))
                             {
-                                $collector.Add($_, $value)
+                                $appProperties.Add($_, $value)
                             }
-                        }
-                        end
-                        {
-                            return $collector
                         }
                     }
 
@@ -272,8 +277,8 @@ function Get-ADTApplication
                         $appMsiGuid,
                         $appDisplayName,
                         $appProperties['DisplayVersion'],
-                        $appProperties['UninstallString'],
-                        $appProperties['QuietUninstallString'],
+                        $uninstallString,
+                        $quietUninstallString,
                         $appProperties['InstallSource'],
                         $appProperties['InstallLocation'],
                         $installDate,
@@ -288,7 +293,7 @@ function Get-ADTApplication
                     # Build out an object and return it to the pipeline if there's no filterscript or the filterscript returns something.
                     if (!$FilterScript -or (ForEach-Object -InputObject $app -Process $FilterScript -ErrorAction Ignore))
                     {
-                        Write-ADTLogEntry -Message "Found installed application [$($app.DisplayName)]$(if ($app.DisplayVersion) {" version [$($app.DisplayVersion)]"})."
+                        Write-ADTLogEntry -Message "Found installed application [$($app.DisplayName)$(if ($app.DisplayVersion -and !$app.DisplayName.Contains($app.DisplayVersion)) {" $($app.DisplayVersion)"})]."
                         $app
                     }
                 }

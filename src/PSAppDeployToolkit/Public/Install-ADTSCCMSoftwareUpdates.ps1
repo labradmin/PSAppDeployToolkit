@@ -36,19 +36,31 @@ function Install-ADTSCCMSoftwareUpdates
 
         Scans for outstanding SCCM updates and installs the pending updates with default wait times.
 
+    .EXAMPLE
+        Install-ADTSCCMSoftwareUpdates -WaitForPendingUpdatesTimeout 00:30:00
+
+        Scans for outstanding SCCM updates and installs the pending updates with a 30 minute timeout.
+
+    .EXAMPLE
+        Install-ADTSCCMSoftwareUpdates -WaitForPendingUpdatesTimeout (New-TimeSpan -Minutes 30)
+
+        Scans for outstanding SCCM updates and installs the pending updates with a 30 minute timeout.
+
     .NOTES
         An active ADT session is NOT required to use this function.
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
         https://psappdeploytoolkit.com/docs/reference/functions/Install-ADTSCCMSoftwareUpdates
     #>
 
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param
     (
         [Parameter(Mandatory = $false)]
@@ -111,6 +123,10 @@ function Install-ADTSCCMSoftwareUpdates
             {
                 # Install missing updates.
                 Write-ADTLogEntry -Message "Installing missing updates. The number of missing updates is [$($CMMissingUpdates.Count)]."
+                if (!$PSCmdlet.ShouldProcess("[$($CMMissingUpdates.Count)] SCCM software updates", 'Install'))
+                {
+                    return
+                }
                 if (!($result = Invoke-CimMethod -Namespace ROOT\CCM\ClientSDK -ClassName CCM_SoftwareUpdatesManager -MethodName InstallUpdates -Arguments @{ CCMUpdates = $CMMissingUpdates }))
                 {
                     $naerParams = @{

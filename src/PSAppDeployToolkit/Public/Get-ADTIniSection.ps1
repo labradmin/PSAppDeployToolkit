@@ -13,6 +13,8 @@ function Get-ADTIniSection
     .DESCRIPTION
         Parses an INI file and returns the specified section as an ordered hashtable of key value pairs.
 
+        Please note that the INI file provided cannot have a byte order mark (BOM) present as the underlying Win32 API cannot process it correctly.
+
     .PARAMETER FilePath
         Path to the INI file.
 
@@ -39,11 +41,11 @@ function Get-ADTIniSection
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
-        https://psappdeploytoolkit.com/docs/reference/functions/Get-ADTIniValue
+        https://psappdeploytoolkit.com/docs/reference/functions/Get-ADTIniSection
     #>
 
     [CmdletBinding()]
@@ -85,17 +87,12 @@ function Get-ADTIniSection
             {
                 # Get the section from the INI file
                 $iniSection = [PSADT.Utilities.IniUtilities]::GetSection($FilePath, $Section)
-
                 if ($null -eq $iniSection -or $iniSection.Count -eq 0)
                 {
                     Write-ADTLogEntry -Message "INI section is empty."
+                    return
                 }
-                else
-                {
-                    $logContent = $iniSection.GetEnumerator() | & { process { "`n$($_.Key)=$($_.Value)" } }
-                    Write-ADTLogEntry -Message "INI section content: $logContent"
-                }
-
+                Write-ADTLogEntry -Message "INI section content: $($iniSection.GetEnumerator() | & { process { "`n$($_.Key)=$($_.Value)" } })"
                 return $iniSection
             }
             catch

@@ -43,19 +43,31 @@ function Start-ADTServiceAndDependencies
 
         Starts the Windows Update service and its dependencies.
 
+    .EXAMPLE
+        Start-ADTServiceAndDependencies -Name 'wuauserv' -PendingStatusWait 00:01:00
+
+        Starts the Windows Update service and its dependencies, waiting 1 minute for the serivce to start.
+
+    .EXAMPLE
+        Start-ADTServiceAndDependencies -Name 'wuauserv' -PendingStatusWait (New-TimeSpan -Minutes 1)
+
+        Starts the Windows Update service and its dependencies, waiting 1 minute for the serivce to start.
+
     .NOTES
         An active ADT session is NOT required to use this function.
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
         https://psappdeploytoolkit.com/docs/reference/functions/Start-ADTServiceAndDependencies
     #>
 
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param
     (
         [Parameter(Mandatory = $true, ParameterSetName = 'Name')]
@@ -103,7 +115,11 @@ function Start-ADTServiceAndDependencies
                 {
                     $PSBoundParameters.Name = $InputObject.Name
                 }
-                Invoke-ADTServiceAndDependencyOperation -Operation Start @PSBoundParameters
+                $serviceName = if ($pipelining) { $InputObject.Name } else { $Name }
+                if ($PSCmdlet.ShouldProcess($serviceName, 'Start service and dependencies'))
+                {
+                    Invoke-ADTServiceAndDependencyOperation -Operation Start @PSBoundParameters
+                }
             }
             catch
             {

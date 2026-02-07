@@ -1,16 +1,17 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Management.Automation.Language;
 using System.Threading;
-using PSADT.Module;
 using PSADT.ProcessManagement;
 using PSADT.Utilities;
 using PSADT.UserInterface.DialogOptions;
 using PSADT.UserInterface.DialogResults;
 using PSADT.UserInterface.Dialogs;
 using PSADT.UserInterface.DialogState;
+using PSAppDeployToolkit.SessionManagement;
 
 namespace PSADT.UserInterface.TestHarness
 {
@@ -23,17 +24,17 @@ namespace PSADT.UserInterface.TestHarness
         private static void Main()
         {
             // What dialog style are we running with?
-            var dialogStyle = DialogStyle.Fluent; // or DialogStyle.Classic
+            DialogStyle dialogStyle = DialogStyle.Fluent; // or DialogStyle.Classic
 
             // Read PSADT's string table into memory.
-            var stringsAst = Parser.ParseFile(Path.GetFullPath($@"{AppDomain.CurrentDomain.BaseDirectory}\..\..\..\..\..\PSAppDeployToolkit\Strings\strings.psd1"), out var tokens, out var errors);
+            ScriptBlockAst stringsAst = Parser.ParseFile(Path.GetFullPath($@"{AppDomain.CurrentDomain.BaseDirectory}\..\..\..\..\..\PSAppDeployToolkit\Strings\strings.psd1"), out Token[]? tokens, out ParseError[]? errors);
             if (errors.Length > 0)
             {
                 throw new InvalidDataException($"Error parsing strings.psd1 file.");
             }
 
             // Read out the hashtable
-            var stringTable = (Hashtable)stringsAst.Find(x => x is HashtableAst, false).SafeGetValue();
+            Hashtable stringTable = (Hashtable)stringsAst.Find(x => x is HashtableAst, false).SafeGetValue();
 
             // Set up parameters for testing
             string appTitle = "Adobe Creative Suite 2.1.45 EN";
@@ -74,10 +75,14 @@ namespace PSADT.UserInterface.TestHarness
 
             TimeSpan countdownDuration = TimeSpan.FromSeconds(580);
 
-            //string customMessageText = "Oh yeah. You can do [italic]italics[/italic] now. And [bold]bold text strings[/bold]. And [accent]accent colored text strings![/accent] This is a custom message that can be added using the [bold]-CustomText[/bold] parameter on [bold]Show-ADTInstallationWelcome[/bold] and [bold]Show-ADTInstallationRestartPrompt[/bold].";
+            string customMessageText = @"Basic URL: [url]https://example.com[/url]
+URL with Description: [url=https://example.com]Read the IT Security Policy here[/url].
+This is [bold]bold text[/bold] and [italic]italic text[/italic].
+Nested tags: [bold]Bold plus [italic]italic inside[/italic], with an [accent]accent[/accent][/bold].
+Double nested tags: A cheeky [bold][accent][italic]bold italic accent![/italic][/accent][/bold].";
 
             uint deferralsRemaining = 3;
-            DateTime deferralDeadline = DateTime.Parse("2025-09-20T13:00:00");
+            DateTime deferralDeadline = DateTime.Parse("2025-09-20T13:00:00", CultureInfo.InvariantCulture);
 
             // DateTime? deferralDeadline = null;
             string progressMessageText = "Performing [accent]pre-flight checks[/accent]…";
@@ -86,7 +91,7 @@ namespace PSADT.UserInterface.TestHarness
             TimeSpan restartCountdownDuration = TimeSpan.FromSeconds(80);
             TimeSpan restartCountdownNoMinimizeDuration = TimeSpan.FromSeconds(70);
 
-            string customDialogMessageText = "The installation requires you to have an exceptional amount of patience, as well an almost superhuman ability to not lose your temper. Given that you have not had much and seem to be super-cranky, are you sure you want to proceed? And don't forget to visit this website [url]https://psappdeploytoolkit.com[/url]";
+            string customDialogMessageText = "The installation requires you to have an exceptional amount of patience, as well an almost superhuman ability to not lose your temper. Given that you have not had much and seem to be super-cranky, are you sure you want to proceed? [bold]URL Formatting Tests:[/bold] Visit [url]https://psappdeploytoolkit.com[/url] or check our [url=https://github.com/PSAppDeployToolkit/PSAppDeployToolkit]GitHub Repository[/url] for support.";
 
             string inputDialogMessageText = "Enter the server name e.g. [italic]remotesvr1.psadt.ca[/italic]";
             string inputDialogTextBox = "YouCompleteMe";
@@ -98,8 +103,8 @@ namespace PSADT.UserInterface.TestHarness
             string ButtonRightText = "RightButton";
 
             // Set up options for the dialogs
-            CloseAppsDialogState closeAppsDialogState = new(appsToClose, null);
-            var closeAppsDialogOptions = new Hashtable
+            using CloseAppsDialogState closeAppsDialogState = new(appsToClose, (_, _, _) => { });
+            Hashtable closeAppsDialogOptions = new()
             {
                 { "DialogExpiryDuration", dialogExpiryDuration },
                 //{ "FluentAccentColor", ValueTypeConverter.ToInt(0xFF107C10) }, // Accent Color: Green #107C10
@@ -114,10 +119,12 @@ namespace PSADT.UserInterface.TestHarness
                 { "CountdownDuration", countdownDuration },
                 { "DeferralsRemaining", deferralsRemaining },
                 { "DeferralDeadline", deferralDeadline },
-                //{ "CustomMessageText", customMessageText },
+                { "DialogAllowMinimize", true },
+                { "CustomMessageText", customMessageText },
+                { "Language", CultureInfo.CurrentCulture },
                 { "Strings", (Hashtable)stringTable["CloseAppsPrompt"]! },
             };
-            var progressDialogOptions = new ProgressDialogOptions(new Hashtable
+            ProgressDialogOptions progressDialogOptions = new(new()
             {
                 { "DialogExpiryDuration", dialogExpiryDuration },
                 { "FluentAccentColor", ValueTypeConverter.ToInt(0xFFFFB900) }, // Accent Color: Yellow #FFB900
@@ -131,9 +138,10 @@ namespace PSADT.UserInterface.TestHarness
                 { "AppBannerImage", appBannerImage },
                 { "ProgressMessageText", progressMessageText },
                 { "ProgressDetailMessageText", progressDetailMessageText },
+                { "Language", CultureInfo.CurrentCulture },
                 { "AdditionalOption", true }
             });
-            var customDialogOptions = new CustomDialogOptions(new Hashtable
+            CustomDialogOptions customDialogOptions = new(new()
             {
                 { "DialogExpiryDuration", dialogExpiryDuration },
                 { "FluentAccentColor", ValueTypeConverter.ToInt(0xFF01C9D9) }, // Accent Color: Cyan #00B7C3
@@ -151,10 +159,11 @@ namespace PSADT.UserInterface.TestHarness
                 { "ButtonRightText", ButtonRightText },
                 { "Icon", DialogSystemIcon.Information },
                 { "MinimizeWindows", false },
+                { "Language", CultureInfo.CurrentCulture },
                 { "MessageAlignment", DialogMessageAlignment.Left }
             });
 
-            var inputDialogOptions = new InputDialogOptions(new Hashtable
+            InputDialogOptions inputDialogOptions = new(new()
             {
                 { "DialogExpiryDuration", dialogExpiryDuration },
                 { "FluentAccentColor", ValueTypeConverter.ToInt(0xFFE81123) }, // Accent Color: Red #E81123
@@ -172,11 +181,10 @@ namespace PSADT.UserInterface.TestHarness
                 { "ButtonRightText", inputDialogButtonRightText },
                 { "Icon", DialogSystemIcon.Information },
                 { "MinimizeWindows", false },
+                { "Language", CultureInfo.CurrentCulture },
                 { "MessageAlignment", DialogMessageAlignment.Left }
-            })
-            {
-            };
-            var restartDialogOptions = new Hashtable
+            });
+            Hashtable restartDialogOptions = new()
             {
                 { "DialogExpiryDuration", dialogExpiryDuration },
                 { "FluentAccentColor", ValueTypeConverter.ToInt(0xFFE3008C) }, // Accent Color: Purple #E3008C
@@ -191,78 +199,52 @@ namespace PSADT.UserInterface.TestHarness
                 { "CountdownDuration", restartCountdownDuration },
                 { "CountdownNoMinimizeDuration", restartCountdownNoMinimizeDuration },
                 // { "CustomMessageText", customMessageText },
+                { "Language", CultureInfo.CurrentCulture },
                 { "Strings", (Hashtable)stringTable["RestartPrompt"]! },
             };
 
-            try
-            {
-                var closeAppsResult = DialogManager.ShowCloseAppsDialog(dialogStyle, new CloseAppsDialogOptions(deploymentType, closeAppsDialogOptions), closeAppsDialogState); // Pass the service as optional parameter
+            CloseAppsDialogResult closeAppsResult = DialogManager.ShowCloseAppsDialog(dialogStyle, new CloseAppsDialogOptions(deploymentType, closeAppsDialogOptions), closeAppsDialogState); // Pass the service as optional parameter
 
-                Console.WriteLine($"CloseApps Dialog DialogResult: {closeAppsResult}");
+            // #################################################################################
+
+            // Show CloseApps Dialog.
+
+            if (closeAppsResult != CloseAppsDialogResult.Defer)
+            {
+                // Show Progress Dialog
+                DialogManager.ShowProgressDialog(dialogStyle, progressDialogOptions);
+
+                Thread.Sleep(3000); // Simulate some work being done
+
+                // Simulate a process with progress updates
+                for (int i = 0; i <= 100; i += 10)
+                {
+                    // Update progress
+                    DialogManager.UpdateProgressDialog($"Installation progress: {i}%", $"Step {i / 10} of 10", i);
+                    Thread.Sleep(500);  // Simulate work being done
+                }
+
+                // Close Progress Dialog
+                DialogManager.CloseProgressDialog();
 
                 // #################################################################################
 
-                // Show CloseApps Dialog.
+                // Show Custom Dialog
 
-                if (closeAppsResult != CloseAppsDialogResult.Defer)
-                {
-                    // Show Progress Dialog
-                    DialogManager.ShowProgressDialog(dialogStyle, progressDialogOptions);
+                string customResult = DialogManager.ShowCustomDialog(dialogStyle, customDialogOptions);
 
-                    Thread.Sleep(3000); // Simulate some work being done
+                // #################################################################################
 
-                    // Simulate a process with progress updates
-                    for (int i = 0; i <= 100; i += 10)
-                    {
-                        // Update progress
-                        DialogManager.UpdateProgressDialog($"Installation progress: {i}%", $"Step {i / 10} of 10", i);
-                        Thread.Sleep(500);  // Simulate work being done
-                    }
+                // Show Input Dialog
 
-                    // Close Progress Dialog
-                    DialogManager.CloseProgressDialog();
+                InputDialogResult inputResult = DialogManager.ShowInputDialog(dialogStyle, inputDialogOptions);
 
-                    // #################################################################################
+                // #################################################################################
 
-                    // Show Custom Dialog
-
-                    var customResult = DialogManager.ShowCustomDialog(dialogStyle, customDialogOptions);
-
-                    Console.WriteLine($"Custom Dialog DialogResult: {customResult}");
-
-                    // #################################################################################
-
-                    // Show Input Dialog
-
-                    var inputResult = DialogManager.ShowInputDialog(dialogStyle, inputDialogOptions);
-
-                    // #################################################################################
-
-                    // Show Restart Dialog
-                }
-                else
-                {
-                    Console.WriteLine("Installation deferred or cancelled.");
-                }
-
-                var restartResult = DialogManager.ShowRestartDialog(dialogStyle, new RestartDialogOptions(deploymentType, restartDialogOptions));
-
-                Console.WriteLine($"Restart Dialog DialogResult: {restartResult}");
-
-                if (restartResult == "Restart")
-                {
-                    Console.WriteLine("Proceeding with installation after restart.");
-                    // Implement actual restart logic here
-                }
-                else if (restartResult == "Defer")
-                {
-                    Console.WriteLine("Installation deferred by the user.");
-                }
+                // Show Restart Dialog
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"An error occurred: {ex.Message}");
-            }
+
+            string restartResult = DialogManager.ShowRestartDialog(dialogStyle, new RestartDialogOptions(deploymentType, restartDialogOptions));
         }
     }
 }

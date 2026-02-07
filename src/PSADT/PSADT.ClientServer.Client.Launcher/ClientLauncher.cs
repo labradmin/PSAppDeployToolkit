@@ -1,7 +1,8 @@
 ﻿using System;
 using System.ComponentModel;
-using System.Diagnostics;
+using System.Linq;
 using PSADT.ProcessManagement;
+using PSADT.UserInterface;
 
 namespace PSADT.ClientServer
 {
@@ -20,26 +21,16 @@ namespace PSADT.ClientServer
         private static int Main(string[] argv)
         {
             // Set up a new process to run the main application.
-            using Process process = new();
-            process.StartInfo.FileName = typeof(ClientLauncher).Assembly.Location.Replace(".Launcher.exe", ".exe");
-            process.StartInfo.WorkingDirectory = Environment.SystemDirectory;
-            process.StartInfo.UseShellExecute = false;
-            process.StartInfo.CreateNoWindow = true;
-            if (argv.Length > 0)
-            {
-                process.StartInfo.Arguments = CommandLineUtilities.ArgumentListToCommandLine(argv);
-            }
             try
             {
-                process.Start(); process.WaitForExit();
-                return process.ExitCode;
+                return ProcessManager.LaunchAsync(new(typeof(ClientLauncher).Assembly.Location.Replace(".Launcher.exe", ".exe"), argv.Length > 0 ? argv : null, argv.Any(static arg => arg.EndsWith(DialogManager.BlockExecutionRegistryKeyName, StringComparison.OrdinalIgnoreCase)) ? Environment.CurrentDirectory : Environment.SystemDirectory, denyUserTermination: true, createNoWindow: true))!.Task.GetAwaiter().GetResult().ExitCode;
             }
             catch (Win32Exception ex)
             {
-                Environment.FailFast($"Error launching [{process.StartInfo.FileName}] with Win32 error code [{ex.NativeErrorCode}].\nException Info: {ex}", ex);
+                Environment.FailFast($"An unexpected Win32 error occurred with code [{ex.NativeErrorCode}].\nException Info: {ex}", ex);
                 return ex.NativeErrorCode;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex.Message is not null)
             {
                 Environment.FailFast($"An unexpected exception occurred with HRESULT [{ex.HResult}].\nException Info: {ex}", ex);
                 return ex.HResult;

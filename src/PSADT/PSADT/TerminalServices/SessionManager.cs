@@ -2,13 +2,17 @@
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
+using Microsoft.Win32.SafeHandles;
 using PSADT.AccountManagement;
 using PSADT.Extensions;
+using PSADT.Foundation;
 using PSADT.LibraryInterfaces;
-using PSADT.Module;
+using PSADT.LibraryInterfaces.Extensions;
+using PSADT.LibraryInterfaces.SafeHandles;
 using PSADT.ProcessManagement;
 using PSADT.Security;
 using PSADT.Utilities;
@@ -31,16 +35,19 @@ namespace PSADT.TerminalServices
         /// <exception cref="Win32Exception"></exception>
         public static IReadOnlyList<SessionInfo> GetSessionInfo()
         {
-            WtsApi32.WTSEnumerateSessions(HANDLE.WTS_CURRENT_SERVER_HANDLE, out var pSessionInfo);
+            _ = WtsApi32.WTSEnumerateSessions(HANDLE.WTS_CURRENT_SERVER_HANDLE, out SafeWtsHandle pSessionInfo);
             using (pSessionInfo)
             {
-                int objLength = Marshal.SizeOf(typeof(WTS_SESSION_INFOW));
-                List<SessionInfo> sessions = [];
+                int objLength = Marshal.SizeOf<WTS_SESSION_INFOW>();
+                int objCount = pSessionInfo.Length / objLength;
+                ReadOnlySpan<byte> pSessionInfoSpan = pSessionInfo.AsReadOnlySpan<byte>();
+                List<SessionInfo> sessions = new(objCount);
                 for (int i = 0; i < pSessionInfo.Length / objLength; i++)
                 {
-                    if (GetSessionInfo(pSessionInfo.ToStructure<WTS_SESSION_INFOW>(objLength * i)) is SessionInfo session)
+                    ref readonly WTS_SESSION_INFOW session = ref pSessionInfoSpan.Slice(objLength * i).AsReadOnlyStructure<WTS_SESSION_INFOW>();
+                    if (GetSessionInfo(in session) is SessionInfo sessionInfo)
                     {
-                        sessions.Add(session);
+                        sessions.Add(sessionInfo);
                     }
                 }
                 return sessions.AsReadOnly();
@@ -50,14 +57,15 @@ namespace PSADT.TerminalServices
         /// <summary>
         /// Gets session info for any provided valid session Id.
         /// </summary>
-        /// <param name="sessionId"></param>
+        /// <param name="session"></param>
         /// <returns></returns>
-        internal static SessionInfo? GetSessionInfo(in WTS_SESSION_INFOW session)
+        private static SessionInfo? GetSessionInfo(in WTS_SESSION_INFOW session)
         {
             // Internal helper for retrieving session information values.
+            [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0046:Convert to conditional expression", Justification = "Enforcing this rule just makes a mess.")]
             static T? GetValue<T>(uint sessionId, WTS_INFO_CLASS infoClass)
             {
-                WtsApi32.WTSQuerySessionInformation(HANDLE.WTS_CURRENT_SERVER_HANDLE, sessionId, infoClass, out var pBuffer);
+                _ = WtsApi32.WTSQuerySessionInformation(HANDLE.WTS_CURRENT_SERVER_HANDLE, sessionId, infoClass, out SafeWtsHandle pBuffer);
                 using (pBuffer)
                 {
                     if (typeof(T) == typeof(string))
@@ -78,7 +86,7 @@ namespace PSADT.TerminalServices
                     }
                     else if (typeof(T) == typeof(WTSINFOEXW))
                     {
-                        return (T)(object)pBuffer.ToStructure<WTSINFOEXW>();
+                        return (T)(object)pBuffer.AsReadOnlyStructure<WTSINFOEXW>();
                     }
                     else
                     {
@@ -88,7 +96,7 @@ namespace PSADT.TerminalServices
             }
 
             // Get extended information about the session, bombing out if we have no username (not a proper session).
-            var sessionInfo = GetValue<WTSINFOEXW>(session.SessionId, WTS_INFO_CLASS.WTSSessionInfoEx).Data.WTSInfoExLevel1;
+            WTSINFOEX_LEVEL1_W sessionInfo = GetValue<WTSINFOEXW>(session.SessionId, WTS_INFO_CLASS.WTSSessionInfoEx).Data.WTSInfoExLevel1;
             if (sessionInfo.UserName.ToString().TrimRemoveNull() is not string userName || string.IsNullOrWhiteSpace(userName))
             {
                 return null;
@@ -113,7 +121,7 @@ namespace PSADT.TerminalServices
             {
                 isLocalAdmin = IsWtsSessionUserLocalAdmin(session.SessionId, sid);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex.Message is not null)
             {
                 isLocalAdminException = ex;
             }
@@ -129,12 +137,12 @@ namespace PSADT.TerminalServices
                 {
                     try
                     {
-                        RunAsActiveUser user = new(ntAccount, sid, session.SessionId); AssemblyPermissions.Remediate(user);
+                        RunAsActiveUser user = new(ntAccount, sid, session.SessionId, isLocalAdmin); AssemblyPermissions.Remediate(user);
                         string clientServerPath = typeof(SessionInfo).Assembly.Location.Replace(".dll", ".ClientServer.Client.exe");
-                        ProcessLaunchInfo args = new(clientServerPath, new(["/GetLastInputTime"]), Environment.SystemDirectory, user, createNoWindow: true);
-                        idleTime = new(long.Parse(ProcessManager.LaunchAsync(args)!.Task.GetAwaiter().GetResult().StdOut!.First()));
+                        ProcessLaunchInfo args = new(clientServerPath, ["/GetLastInputTime"], Environment.SystemDirectory, user, createNoWindow: true);
+                        idleTime = new(long.Parse(ProcessManager.LaunchAsync(args)!.Task.GetAwaiter().GetResult().StdOut![0], CultureInfo.InvariantCulture));
                     }
-                    catch
+                    catch (Exception ex) when (ex.Message is not null)
                     {
                         idleTime = null;
                     }
@@ -154,7 +162,7 @@ namespace PSADT.TerminalServices
                 isConsoleSession,
                 isActiveUserSession,
                 isValidUserSession,
-                pWinStationName != "Services" && pWinStationName != "RDP-Tcp",
+                pWinStationName is not "Services" and not "RDP-Tcp",
                 clientProtocolType != 0,
                 isLocalAdmin,
                 isLocalAdminException,
@@ -162,9 +170,9 @@ namespace PSADT.TerminalServices
                 idleTime,
                 sessionInfo.DisconnectTime != 0 && !isActiveUserSession ? DateTime.FromFileTime(sessionInfo.DisconnectTime) : null,
                 clientName,
-                (WTS_PROTOCOL_TYPE)clientProtocolType!,
+                (WTS_PROTOCOL_TYPE)clientProtocolType,
                 GetValue<string>(session.SessionId, WTS_INFO_CLASS.WTSClientDirectory),
-                (null != clientName) ? GetValue<uint>(session.SessionId, WTS_INFO_CLASS.WTSClientBuildNumber) : null
+                (clientName is not null) ? GetValue<uint>(session.SessionId, WTS_INFO_CLASS.WTSClientBuildNumber) : null
             );
         }
 
@@ -172,7 +180,7 @@ namespace PSADT.TerminalServices
         /// Retrieves the security identifier (SID) associated with a specified session and user account.
         /// </summary>
         /// <remarks>This method attempts multiple approaches to retrieve the SID, including translating
-        /// the user account to a SID,  querying the user's token if the necessary privileges are enabled, and
+        /// the user account to a SID, querying the user's token if the necessary privileges are enabled, and
         /// retrieving group policy information. If none of these methods succeed, the method returns <see
         /// langword="null"/>.</remarks>
         /// <param name="sessionid">The ID of the session for which the SID is being retrieved.</param>
@@ -184,26 +192,27 @@ namespace PSADT.TerminalServices
             if (AccountUtilities.CallerIsLocalSystem)
             {
                 PrivilegeManager.EnablePrivilegeIfDisabled(SE_PRIVILEGE.SeTcbPrivilege);
-                WtsApi32.WTSQueryUserToken(sessionid, out var hUserToken);
+                _ = WtsApi32.WTSQueryUserToken(sessionid, out SafeFileHandle hUserToken);
                 using (hUserToken)
                 {
-                    return TokenManager.GetTokenSid(hUserToken);
+                    return TokenUtilities.GetTokenSid(hUserToken);
                 }
             }
 
             // If we're an admin, we can get the SID from a process running in the session.
             if (AccountUtilities.CallerIsAdmin)
             {
-                WtsApi32.WTSEnumerateProcessesEx(HANDLE.WTS_CURRENT_SERVER_HANDLE, 0, sessionid, out var pProcessInfo);
+                _ = WtsApi32.WTSEnumerateProcessesEx(HANDLE.WTS_CURRENT_SERVER_HANDLE, 0, sessionid, out SafeWtsExHandle pProcessInfo);
                 using (pProcessInfo)
                 {
-                    int objLength = Marshal.SizeOf(typeof(WTS_PROCESS_INFOW));
+                    ReadOnlySpan<byte> pProcessInfoSpan = pProcessInfo.AsReadOnlySpan<byte>();
+                    int objLength = Marshal.SizeOf<WTS_PROCESS_INFOW>();
                     for (int i = 0; i < pProcessInfo.Length / objLength; i++)
                     {
-                        WTS_PROCESS_INFOW process = pProcessInfo.ToStructure<WTS_PROCESS_INFOW>(objLength * i);
+                        ref readonly WTS_PROCESS_INFOW process = ref pProcessInfoSpan.Slice(objLength * i).AsReadOnlyStructure<WTS_PROCESS_INFOW>();
                         if (process.pProcessName.ToString()?.Equals("explorer.exe", StringComparison.OrdinalIgnoreCase) == true)
                         {
-                            return new((IntPtr)process.pUserSid);
+                            return process.pUserSid.ToSecurityIdentifier();
                         }
                     }
                 }
@@ -212,16 +221,16 @@ namespace PSADT.TerminalServices
             // Attempt to get the SID from the caller's explorer.exe process if it exists.
             if (AccountUtilities.CallerIsAdmin || sessionid == AccountUtilities.CallerSessionId)
             {
-                foreach (var explorerProcess in Process.GetProcessesByName("explorer").Where(p => p.SessionId == sessionid).OrderBy(static p => p.StartTime))
+                foreach (Process explorerProcess in Process.GetProcessesByName("explorer").Where(p => p.SessionId == sessionid).OrderBy(static p => p.StartTime))
                 {
                     try
                     {
-                        using (explorerProcess) using (var explorerProcessSafeHandle = explorerProcess.SafeHandle)
+                        using (explorerProcess) using (SafeProcessHandle explorerProcessSafeHandle = explorerProcess.SafeHandle)
                         {
-                            AdvApi32.OpenProcessToken(explorerProcessSafeHandle, TOKEN_ACCESS_MASK.TOKEN_QUERY, out var hProcessToken);
+                            _ = AdvApi32.OpenProcessToken(explorerProcessSafeHandle, TOKEN_ACCESS_MASK.TOKEN_QUERY, out SafeFileHandle hProcessToken);
                             using (hProcessToken)
                             {
-                                return TokenManager.GetTokenSid(hProcessToken);
+                                return TokenUtilities.GetTokenSid(hProcessToken);
                             }
                         }
                     }
@@ -229,6 +238,7 @@ namespace PSADT.TerminalServices
                     {
                         // It's possible the process may be inaccessible if Explorer is elevated by EPM but the caller is not.
                         continue;
+                        throw;
                     }
                 }
             }
@@ -255,23 +265,10 @@ namespace PSADT.TerminalServices
             if (AccountUtilities.CallerIsLocalSystem)
             {
                 PrivilegeManager.EnablePrivilegeIfDisabled(SE_PRIVILEGE.SeTcbPrivilege);
-                WtsApi32.WTSQueryUserToken(sessionid, out var hUserToken); using (hUserToken)
-                using (var hPrimaryToken = TokenManager.GetHighestPrimaryToken(hUserToken))
+                _ = WtsApi32.WTSQueryUserToken(sessionid, out SafeFileHandle hUserToken); using (hUserToken)
+                using (SafeFileHandle hPrimaryToken = TokenManager.GetHighestPrimaryToken(hUserToken))
                 {
-                    bool hPrimaryTokenAddRef = false;
-                    try
-                    {
-                        hPrimaryToken.DangerousAddRef(ref hPrimaryTokenAddRef);
-                        using WindowsIdentity identity = new(hPrimaryToken.DangerousGetHandle());
-                        return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
-                    }
-                    finally
-                    {
-                        if (hPrimaryTokenAddRef)
-                        {
-                            hPrimaryToken.DangerousRelease();
-                        }
-                    }
+                    return TokenUtilities.IsTokenAdministrative(hPrimaryToken);
                 }
             }
             return AccountUtilities.IsSidMemberOfWellKnownGroup(sid, WellKnownSidType.BuiltinAdministratorsSid);

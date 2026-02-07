@@ -1,6 +1,6 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
+using System.Runtime.InteropServices.ComTypes;
+using Microsoft.Win32;
 using Microsoft.Win32.SafeHandles;
 using PSADT.Extensions;
 using PSADT.LibraryInterfaces;
@@ -21,8 +21,8 @@ namespace PSADT.RegistryManagement
         /// <exception cref="ArgumentException"></exception>
         public static DateTime GetRegistryKeyLastWriteTime(string fullKeyPath)
         {
-            using var hKey = OpenRegistryKey(fullKeyPath);
-            AdvApi32.RegQueryInfoKey(hKey, null, out _, out _, out _, out _, out _, out _, out _, out _, out var lastWriteTime);
+            using SafeRegistryHandle hKey = OpenRegistryKey(fullKeyPath);
+            _ = AdvApi32.RegQueryInfoKey(hKey, null, out _, out _, out _, out _, out _, out _, out _, out _, out FILETIME lastWriteTime);
             return lastWriteTime.ToDateTime();
         }
 
@@ -37,8 +37,41 @@ namespace PSADT.RegistryManagement
         /// <param name="newKeyName">The new name for the subkey. This cannot be null or empty.</param>
         public static void RenameRegistryKey(string keyPath, string? subKeyName, string newKeyName)
         {
-            using var hKey = OpenRegistryKey(keyPath, REG_SAM_FLAGS.KEY_READ | REG_SAM_FLAGS.KEY_WRITE);
-            AdvApi32.RegRenameKey(hKey, subKeyName, newKeyName);
+            using SafeRegistryHandle hKey = OpenRegistryKey(keyPath, REG_SAM_FLAGS.KEY_READ | REG_SAM_FLAGS.KEY_WRITE);
+            _ = AdvApi32.RegRenameKey(hKey, subKeyName, newKeyName);
+        }
+
+        /// <summary>
+        /// Retrieves a read-only registry key corresponding to the specified registry path.
+        /// </summary>
+        /// <remarks>The returned registry key is opened in read-only mode. The method supports both full
+        /// and abbreviated hive names. The caller is responsible for disposing the returned <see cref="RegistryKey"/>
+        /// when it is no longer needed.</remarks>
+        /// <param name="keyPath">The full registry key path, including the hive name (e.g., "HKEY_LOCAL_MACHINE\Software\MyApp"). Abbreviated
+        /// hive names such as "HKLM" are also supported. Cannot be null or empty.</param>
+        /// <param name="writable">Indicates whether the returned <see cref="RegistryKey"/> should be opened with write access.</param>
+        /// <returns>A read-only <see cref="RegistryKey"/> object representing the specified registry key.</returns>
+        /// <exception cref="ArgumentException">Thrown if <paramref name="keyPath"/> is null, empty, not in a valid format, specifies an unrecognized hive,
+        /// or if the specified registry key does not exist.</exception>
+        internal static RegistryKey GetRegistryKeyForPath(string keyPath, bool writable)
+        {
+            keyPath = keyPath.Replace(@"Microsoft.PowerShell.Core\Registry::", null);
+            int firstBackslashIndex = keyPath.IndexOf('\\');
+            if (firstBackslashIndex == -1)
+            {
+                throw new ArgumentException("Invalid registry key format.", nameof(keyPath));
+            }
+            string hiveName = keyPath.Substring(0, firstBackslashIndex);
+            RegistryKey baseKey = hiveName switch
+            {
+                "HKEY_LOCAL_MACHINE" or "HKLM" => Registry.LocalMachine,
+                "HKEY_CURRENT_USER" or "HKCU" => Registry.CurrentUser,
+                "HKEY_CLASSES_ROOT" or "HKCR" => Registry.ClassesRoot,
+                "HKEY_USERS" or "HKU" => Registry.Users,
+                "HKEY_CURRENT_CONFIG" or "HKCC" => Registry.CurrentConfig,
+                _ => throw new ArgumentException($"Invalid registry hive: {hiveName}", nameof(keyPath)),
+            };
+            return baseKey.OpenSubKey(keyPath.Substring(firstBackslashIndex + 1), writable) ?? throw new ArgumentException("The specified registry key does not exist.", nameof(keyPath)); ;
         }
 
         /// <summary>
@@ -46,10 +79,11 @@ namespace PSADT.RegistryManagement
         /// </summary>
         /// <remarks>The method validates the input path, determines the appropriate registry hive, and
         /// opens the specified subkey with read-only access. The caller is responsible for disposing of the returned
-        /// <see cref="Microsoft.Win32.SafeHandles.SafeRegistryHandle"/>  to release the associated resources.</remarks>
+        /// <see cref="SafeRegistryHandle"/> to release the associated resources.</remarks>
         /// <param name="fullKeyPath">The full path of the registry key to open, including the hive name (e.g.,
         /// "HKEY_LOCAL_MACHINE\Software\Example").</param>
-        /// <returns>A <see cref="Microsoft.Win32.SafeHandles.SafeRegistryHandle"/> representing the opened registry key.</returns>
+        /// <param name="openFlags">The access flags to use when opening the registry key. Defaults to <see cref="REG_SAM_FLAGS.KEY_READ"/>.</param>
+        /// <returns>A <see cref="SafeRegistryHandle"/> representing the opened registry key.</returns>
         /// <exception cref="ArgumentException">Thrown if <paramref name="fullKeyPath"/> is null, empty, or not in a valid registry key format.</exception>
         private static SafeRegistryHandle OpenRegistryKey(string fullKeyPath, REG_SAM_FLAGS openFlags = REG_SAM_FLAGS.KEY_READ)
         {
@@ -60,7 +94,7 @@ namespace PSADT.RegistryManagement
             }
 
             // Split hive and subkey so we know what root hive we're accessing.
-            var parts = fullKeyPath.Replace(@"Microsoft.PowerShell.Core\Registry::", null).Split(['\\'], 2);
+            string[] parts = fullKeyPath.Replace(@"Microsoft.PowerShell.Core\Registry::", null).Split(['\\'], 2);
             if (parts.Length < 2)
             {
                 throw new ArgumentException("Invalid registry key format.", nameof(fullKeyPath));
@@ -69,8 +103,8 @@ namespace PSADT.RegistryManagement
             string subKeyPath = parts[1];
 
             // Open the registry key and return it to the caller.
-            using var hKeyRoot = GetRegistryHiveHandle(hiveName);
-            AdvApi32.RegOpenKeyEx(hKeyRoot, subKeyPath, openFlags, out var hKey);
+            using SafeRegistryHandle hKeyRoot = GetRegistryHiveHandle(hiveName);
+            _ = AdvApi32.RegOpenKeyEx(hKeyRoot, subKeyPath, openFlags, out SafeRegistryHandle hKey);
             return hKey;
         }
 
@@ -79,7 +113,7 @@ namespace PSADT.RegistryManagement
         /// </summary>
         /// <param name="hiveName">The name of the registry hive to retrieve. Supported values are <c>"HKEY_LOCAL_MACHINE"</c>,
         /// <c>"HKEY_CURRENT_USER"</c>, <c>"HKEY_CLASSES_ROOT"</c>, <c>"HKEY_USERS"</c>, and <c>"HKEY_CURRENT_CONFIG"</c>.</param>
-        /// <returns>A <see cref="Microsoft.Win32.SafeHandles.SafeRegistryHandle"/> representing the handle to the specified
+        /// <returns>A <see cref="SafeRegistryHandle"/> representing the handle to the specified
         /// registry hive.</returns>
         /// <exception cref="ArgumentException">Thrown if <paramref name="hiveName"/> is not one of the supported registry hive names.</exception>
         private static SafeRegistryHandle GetRegistryHiveHandle(string hiveName)

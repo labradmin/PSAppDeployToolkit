@@ -22,6 +22,15 @@ function Set-ADTEnvironmentVariable
     .PARAMETER Target
         The target of the variable to set. This can be the machine, user, or process.
 
+    .PARAMETER Append
+        Specifies the value should be appended to an existing value if present.
+
+    .PARAMETER Remove
+        Specifies the value should be removed from an existing value if present.
+
+    .PARAMETER Expandable
+        Indicates that the environment variable should be written to the registry using a REG_EXPAND_SZ type to support environment variables.
+
     .INPUTS
         None
 
@@ -45,16 +54,18 @@ function Set-ADTEnvironmentVariable
     .NOTES
         An active ADT session is NOT required to use this function.
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
         https://psappdeploytoolkit.com/docs/reference/functions/Set-ADTEnvironmentVariable
     #>
 
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName = 'None', SupportsShouldProcess = $true)]
     param
     (
         [Parameter(Mandatory = $true)]
@@ -67,7 +78,16 @@ function Set-ADTEnvironmentVariable
 
         [Parameter(Mandatory = $false)]
         [ValidateNotNullOrEmpty()]
-        [System.EnvironmentVariableTarget]$Target
+        [System.EnvironmentVariableTarget]$Target,
+
+        [Parameter(Mandatory = $true, ParameterSetName = 'Append')]
+        [System.Management.Automation.SwitchParameter]$Append,
+
+        [Parameter(Mandatory = $true, ParameterSetName = 'Remove')]
+        [System.Management.Automation.SwitchParameter]$Remove,
+
+        [Parameter(Mandatory = $false)]
+        [System.Management.Automation.SwitchParameter]$Expandable
     )
 
     begin
@@ -92,15 +112,24 @@ function Set-ADTEnvironmentVariable
                             return
                         }
                         Write-ADTLogEntry -Message "Setting $(($logSuffix = "the environment variable [$Variable] for [$($runAsActiveUser.NTAccount)] to [$Value]"))."
-                        Invoke-ADTClientServerOperation -SetEnvironmentVariable -User $runAsActiveUser -Variable $Variable -Value $Value
+                        if ($PSCmdlet.ShouldProcess("$Variable (User: $($runAsActiveUser.NTAccount))", "Set environment variable to [$Value]"))
+                        {
+                            Invoke-ADTClientServerOperation -SetEnvironmentVariable -User $runAsActiveUser -Variable $Variable -Value $Value -Append:$Append -Remove:$Remove -Expandable:$Expandable
+                        }
                         return
                     }
                     Write-ADTLogEntry -Message "Setting $(($logSuffix = "the environment variable [$Variable] for [$Target] to [$Value]"))."
-                    [System.Environment]::SetEnvironmentVariable($Variable, $Value, $Target)
+                    if ($PSCmdlet.ShouldProcess("$Variable (Target: $Target)", "Set environment variable to [$Value]"))
+                    {
+                        [PSADT.Utilities.EnvironmentUtilities]::SetEnvironmentVariable($Variable, $Value, $Target, !!$Expandable, !!$Append, !!$Remove)
+                    }
                     return
                 }
                 Write-ADTLogEntry -Message "Setting $(($logSuffix = "the environment variable [$Variable] to [$Value]"))."
-                [System.Environment]::SetEnvironmentVariable($Variable, $Value)
+                if ($PSCmdlet.ShouldProcess($Variable, "Set environment variable to [$Value]"))
+                {
+                    [PSADT.Utilities.EnvironmentUtilities]::SetEnvironmentVariable($Variable, $Value, !!$Expandable, !!$Append, !!$Remove)
+                }
                 return
             }
             catch

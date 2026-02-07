@@ -1,24 +1,26 @@
 ﻿using System;
-using System.Drawing;
-using System.IO;
-using System.Linq;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.Drawing;
 using System.Globalization;
+using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Automation;
-using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using PSADT.LibraryInterfaces.SafeHandles;
 using PSADT.ProcessManagement;
-using PSADT.SafeHandles;
 using PSADT.UserInterface.DialogOptions;
 using PSADT.UserInterface.DialogResults;
 using PSADT.UserInterface.DialogState;
 using PSADT.UserInterface.Types;
 using PSADT.UserInterface.Utilities;
+using PSAppDeployToolkit.Logging;
 using iNKORE.UI.WPF.Modern;
+using iNKORE.UI.WPF.Modern.Controls.Primitives;
 
 namespace PSADT.UserInterface.Dialogs.Fluent
 {
@@ -31,7 +33,7 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         /// The required data for displaying an app to close on the CloseAppsDialog.
         /// This class is deliberately public as it's required by WPF to be so.
         /// </summary>
-        public sealed class AppToClose
+        public sealed record AppToClose
         {
             /// <summary>
             /// Constructor for the ProcessToClose class.
@@ -39,7 +41,7 @@ namespace PSADT.UserInterface.Dialogs.Fluent
             /// <param name="processToClose"></param>
             public AppToClose(ProcessToClose processToClose)
             {
-                Name = Path.GetFileName(processToClose.Path).ToLower();
+                Name = CultureInfo.InvariantCulture.TextInfo.ToLower(Path.GetFileName(processToClose.Path));
                 Description = processToClose.Description;
                 Icon = GetAppIcon(processToClose.Path) ?? throw new ArgumentNullException("Could not retrieve an icon for the given application.", (Exception?)null);
                 if (string.IsNullOrWhiteSpace(Name))
@@ -72,6 +74,7 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         /// Instantiates a new CloseApps dialog.
         /// </summary>
         /// <param name="options">Mandatory options needed to construct the window.</param>
+        /// <param name="state">Optional state values for the dialog.</param>
         internal CloseAppsDialog(CloseAppsDialogOptions options, CloseAppsDialogState state) : base(options, options.CustomMessageText, options.CountdownDuration, null, state.CountdownStopwatch)
         {
             // Set up the context for data binding
@@ -106,19 +109,22 @@ namespace PSADT.UserInterface.Dialogs.Fluent
             SetDefaultButton(ButtonLeft);
             SetAccentButton(ButtonLeft);
 
+            // Allow the dialog to be minimised if specified.
+            if (options.DialogAllowMinimize)
+            {
+                SetMinimizeButtonAvailability(TitleBarButtonAvailability.Enabled);
+            }
+
             // Set up/process optional values.
-            if (null != state.RunningProcessService)
+            if (state.RunningProcessService is not null)
             {
                 _runningProcessService = state.RunningProcessService;
                 AppsToCloseCollection.ResetItems(_runningProcessService.ProcessesToClose.Select(static p => new AppToClose(p)), true);
                 AppsToCloseCollection.CollectionChanged += AppsToCloseCollection_CollectionChanged;
             }
             UpdateRunningProcesses();
-            if (null != state.LogWriter)
-            {
-                _logWriter = state.LogWriter;
-            }
             UpdateDeferralValues();
+            _logAction = state.LogAction;
 
             // Set the dialog result to a default value.
             DialogResult = CloseAppsDialogResult.Timeout;
@@ -128,7 +134,10 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         /// Determines whether deferrals are currently available.
         /// </summary>
         /// <returns><see langword="true"/> if there are remaining deferrals or a deferral deadline is set; otherwise, <see langword="false"/>.</returns>
-        private bool DeferralsAvailable() => _deferralsRemaining.HasValue || _deferralDeadline.HasValue;
+        private bool DeferralsAvailable()
+        {
+            return _deferralsRemaining.HasValue || _deferralDeadline.HasValue;
+        }
 
         /// <summary>
         /// Updates the deferral values displayed in the dialog.
@@ -149,10 +158,10 @@ namespace PSADT.UserInterface.Dialogs.Fluent
                 ButtonRight.IsEnabled = _deferralsRemaining > 0;
 
                 // Update text value
-                DeferRemainingValueTextBlock.Text = _deferralsRemaining.ToString();
+                DeferRemainingValueTextBlock.Text = _deferralsRemaining.Value.ToString(CultureInfo.CurrentCulture);
 
                 // Update accessibility properties
-                AutomationProperties.SetName(DeferRemainingValueTextBlock, _deferralsRemaining.ToString());
+                AutomationProperties.SetName(DeferRemainingValueTextBlock, _deferralsRemaining.Value.ToString(CultureInfo.CurrentCulture));
 
                 // Update text color based on remaining deferrals
                 if (_deferralsRemaining == 0)
@@ -169,13 +178,12 @@ namespace PSADT.UserInterface.Dialogs.Fluent
             if (_deferralDeadline.HasValue)
             {
                 // Set button state based on deadline
-                TimeSpan timeRemaining = _deferralDeadline!.Value - DateTime.Now;
+                TimeSpan timeRemaining = _deferralDeadline.Value - DateTime.Now;
                 ButtonRight.IsEnabled = timeRemaining > TimeSpan.Zero;
 
                 // Update text content
-                DateTimeFormatInfo dateTimeFormatInfo = new();
-                DateTimeOffset deferralDeadlineOffset = new((DateTime)_deferralDeadline!);
-                string displayText = deferralDeadlineOffset.ToLocalTime().ToString("f");
+                DateTimeOffset deferralDeadlineOffset = new(_deferralDeadline.Value);
+                string displayText = deferralDeadlineOffset.ToLocalTime().ToString("f", CultureInfo.CurrentCulture);
                 if (ButtonRight.IsEnabled)
                 {
                     if (timeRemaining < TimeSpan.FromDays(1))
@@ -200,7 +208,10 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void RunningProcessService_ProcessesToCloseChanged(object? sender, ProcessesToCloseChangedEventArgs e) => Dispatcher.Invoke(() => AppsToCloseCollection.ResetItems(e.ProcessesToClose.Select(p => new AppToClose(p))));
+        private void RunningProcessService_ProcessesToCloseChanged(object? sender, ProcessesToCloseChangedEventArgs e)
+        {
+            Dispatcher.Invoke(() => AppsToCloseCollection.ResetItems(e.ProcessesToClose.Select(p => new AppToClose(p))));
+        }
 
         /// <summary>
         /// Handles the event when the collection of apps to close changes.
@@ -212,11 +223,7 @@ namespace PSADT.UserInterface.Dialogs.Fluent
             UpdateRowDefinition();
             if (AppsToCloseCollection.Count > 0)
             {
-                if (null != _logWriter)
-                {
-                    _logWriter.Write($"The running processes have changed. Updating the apps to close: ['{string.Join("', '", AppsToCloseCollection.Select(static a => a.Description))}']...");
-                    _logWriter.Flush();
-                }
+                _logAction?.Invoke($"The running processes have changed. Updating the apps to close: ['{string.Join("', '", AppsToCloseCollection.Select(static a => a.Description))}']...", LogSeverity.Info);
                 FormatMessageWithHyperlinks(MessageTextBlock, _closeAppsMessageText);
                 CloseAppsStackPanel.Visibility = Visibility.Visible;
                 if (!_hideCloseButton)
@@ -234,11 +241,7 @@ namespace PSADT.UserInterface.Dialogs.Fluent
             }
             else
             {
-                if (null != _logWriter)
-                {
-                    _logWriter.Write("Previously detected running processes are no longer running.");
-                    _logWriter.Flush();
-                }
+                _logAction?.Invoke("Previously detected running processes are no longer running.", LogSeverity.Info);
                 FormatMessageWithHyperlinks(MessageTextBlock, _closeAppsNoProcessesMessageText);
                 SetButtonContentWithAccelerator(ButtonLeft, _buttonLeftNoProcessesText);
                 AutomationProperties.SetName(ButtonLeft, _buttonLeftNoProcessesText);
@@ -246,7 +249,7 @@ namespace PSADT.UserInterface.Dialogs.Fluent
                 ButtonLeft.IsEnabled = true;
                 if (_continueOnProcessClosure)
                 {
-                    ButtonLeft.RaiseEvent(new(Button.ClickEvent));
+                    ButtonLeft.RaiseEvent(new(ButtonBase.ClickEvent));
                 }
             }
         }
@@ -256,7 +259,10 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void AppsToCloseCollection_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => UpdateRunningProcesses();
+        private void AppsToCloseCollection_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            UpdateRunningProcesses();
+        }
 
         /// <summary>
         /// Handles the loading event of the dialog.
@@ -269,7 +275,7 @@ namespace PSADT.UserInterface.Dialogs.Fluent
             base.FluentDialog_Loaded(sender, e);
 
             // Initialize the running process service and set up event handlers.
-            if (null != _runningProcessService)
+            if (_runningProcessService is not null)
             {
                 _runningProcessService.ProcessesToCloseChanged += RunningProcessService_ProcessesToCloseChanged;
             }
@@ -283,14 +289,7 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         protected override void ButtonLeft_Click(object sender, RoutedEventArgs e)
         {
             // Set the result and call base method to handle window closure.
-            if (AutomationProperties.GetName(ButtonLeft) == _buttonLeftText)
-            {
-                DialogResult = CloseAppsDialogResult.Close;
-            }
-            else
-            {
-                DialogResult = CloseAppsDialogResult.Continue;
-            }
+            DialogResult = AutomationProperties.GetName(ButtonLeft) == _buttonLeftText ? CloseAppsDialogResult.Close : CloseAppsDialogResult.Continue;
             base.ButtonLeft_Click(sender, e);
         }
 
@@ -318,25 +317,13 @@ namespace PSADT.UserInterface.Dialogs.Fluent
             {
                 Dispatcher.Invoke(() =>
                 {
-                    if (_forcedCountdown && (null == _runningProcessService || AutomationProperties.GetName(ButtonLeft) == _buttonLeftNoProcessesText))
-                    {
-                        DialogResult = CloseAppsDialogResult.Continue;
-                    }
-                    else if (_forcedCountdown && DeferralsAvailable())
-                    {
-                        DialogResult = CloseAppsDialogResult.Defer;
-                    }
-                    else
-                    {
-                        if (AutomationProperties.GetName(ButtonLeft) == _buttonLeftText)
-                        {
-                            DialogResult = CloseAppsDialogResult.Close;
-                        }
-                        else
-                        {
-                            DialogResult = CloseAppsDialogResult.Continue;
-                        }
-                    }
+                    DialogResult = _forcedCountdown && (_runningProcessService is null || (AutomationProperties.GetName(ButtonLeft) == _buttonLeftNoProcessesText && !_hideCloseButton))
+                        ? CloseAppsDialogResult.Continue
+                        : _forcedCountdown && DeferralsAvailable()
+                            ? CloseAppsDialogResult.Defer
+                            : AutomationProperties.GetName(ButtonLeft) == _buttonLeftText
+                                ? CloseAppsDialogResult.Close
+                                : CloseAppsDialogResult.Continue;
                     CloseDialog();
                 });
             }
@@ -350,7 +337,7 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         private static BitmapSource GetAppIcon(string appFilePath)
         {
             // Try to get from cache first
-            if (!_appIconCache.TryGetValue(appFilePath, out var bitmapSource))
+            if (!_appIconCache.TryGetValue(appFilePath, out BitmapSource? bitmapSource))
             {
                 // Get the icon as a bitmap from the executable, then turn it into a BitmapSource.
                 Bitmap drawingBitmap;
@@ -358,13 +345,13 @@ namespace PSADT.UserInterface.Dialogs.Fluent
                 {
                     drawingBitmap = DrawingUtilities.ExtractBitmapFromExecutable(appFilePath);
                 }
-                catch
+                catch (Exception ex) when (ex.Message is not null)
                 {
                     drawingBitmap = SystemIcons.Get(DialogSystemIcon.Application);
                 }
                 using (drawingBitmap)
-                using (SafeGdiObjectHandle hBitmap = new(drawingBitmap.GetHbitmap(), true))
                 {
+                    using SafeGdiObjectHandle hBitmap = new(drawingBitmap.GetHbitmap(), true);
                     bool hBitmapAddRef = false;
                     try
                     {
@@ -443,11 +430,10 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         private readonly bool _hideCloseButton;
 
         /// <summary>
-        /// Represents the underlying <see cref="StreamWriter"/> used for logging operations.
+        /// Represents the delegate used for logging operations with severity.
         /// </summary>
-        /// <remarks>This field is used internally to write log messages to a stream. It may be null if
-        /// logging is disabled or the stream has not been initialized.</remarks>
-        private readonly BinaryWriter? _logWriter;
+        /// <remarks>This delegate is invoked to write log messages with optional severity.</remarks>
+        private readonly Action<string, LogSeverity> _logAction;
 
         /// <summary>
         /// App/process icon cache for improved performance
@@ -459,13 +445,13 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         /// </summary>
         protected override void Dispose(bool disposing)
         {
-            if (_disposed)
+            if (Disposed)
             {
                 return;
             }
             if (disposing)
             {
-                if (null != _runningProcessService)
+                if (_runningProcessService is not null)
                 {
                     _runningProcessService.ProcessesToCloseChanged -= RunningProcessService_ProcessesToCloseChanged;
                 }

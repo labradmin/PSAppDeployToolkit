@@ -63,14 +63,14 @@ function Show-ADTInstallationRestartPrompt
     .EXAMPLE
         Show-ADTInstallationRestartPrompt -CountdownSeconds 600 -CountdownNoHideSeconds 60
 
-        Displays a restart prompt with a 600-second countdown and triggers a silent restart with a 60-second countdown in silent mode.
+        Displays a restart prompt with a 600-second countdown, removing the ability to hide/minimise the dialog for the last 60 seconds.
 
     .NOTES
         Be mindful of the countdown you specify for the reboot as code directly after this function might NOT be able to execute - that includes logging.
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -117,7 +117,17 @@ function Show-ADTInstallationRestartPrompt
     {
         # Initialize variables.
         $adtSession = Initialize-ADTModuleIfUnitialized -Cmdlet $PSCmdlet
-        $adtStrings = Get-ADTStringTable
+
+        # Initialise the string table.
+        $sessionState = if ($adtSession)
+        {
+            $adtSession.SessionState
+        }
+        if ($null -eq $sessionState)
+        {
+            $sessionState = $PSCmdlet.SessionState
+        }
+        $adtStrings = Get-ADTStringTable -SessionState $SessionState
 
         # Define parameter dictionary for returning at the end.
         $paramDictionary = [System.Management.Automation.RuntimeDefinedParameterDictionary]::new()
@@ -153,7 +163,7 @@ function Show-ADTInstallationRestartPrompt
         }
         else
         {
-            [PSADT.Module.DeploymentType]::Install
+            [PSAppDeployToolkit.SessionManagement.DeploymentType]::Install
         }
 
         # Set up remainder if not specified.
@@ -225,6 +235,7 @@ function Show-ADTInstallationRestartPrompt
                     AppIconImage = $adtConfig.Assets.Logo
                     AppIconDarkImage = $adtConfig.Assets.LogoDark
                     AppBannerImage = $adtConfig.Assets.Banner
+                    AppTaskbarIconImage = $adtConfig.Assets.TaskbarIcon
                     DialogTopMost = !$NotTopMost
                     Language = $Script:ADT.Language
                     Strings = $adtStrings.RestartPrompt

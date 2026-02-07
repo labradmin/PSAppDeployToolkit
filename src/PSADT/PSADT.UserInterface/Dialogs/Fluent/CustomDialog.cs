@@ -14,26 +14,26 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         /// Instantiates a new Custom dialog.
         /// </summary>
         /// <param name="options">Mandatory options needed to construct the window.</param>
-        internal CustomDialog(CustomDialogOptions options, bool setFocus = true) : base(options)
+        internal CustomDialog(CustomDialogOptions options) : base(options)
         {
             // Set up UI
             FormatMessageWithHyperlinks(MessageTextBlock, options.MessageText);
             ButtonPanel.Visibility = Visibility.Visible;
 
             // Configure buttons based on provided texts
-            if (null != options.ButtonLeftText)
+            if (options.ButtonLeftText is not null)
             {
                 SetButtonContentWithAccelerator(ButtonLeft, options.ButtonLeftText);
                 ButtonLeft.Visibility = Visibility.Visible;
                 AutomationProperties.SetName(ButtonLeft, options.ButtonLeftText);
             }
-            if (null != options.ButtonMiddleText)
+            if (options.ButtonMiddleText is not null)
             {
                 SetButtonContentWithAccelerator(ButtonMiddle, options.ButtonMiddleText);
                 ButtonMiddle.Visibility = Visibility.Visible;
                 AutomationProperties.SetName(ButtonMiddle, options.ButtonMiddleText);
             }
-            if (null != options.ButtonRightText)
+            if (options.ButtonRightText is not null)
             {
                 SetButtonContentWithAccelerator(ButtonRight, options.ButtonRightText);
                 ButtonRight.Visibility = Visibility.Visible;
@@ -50,9 +50,9 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         protected override void ButtonLeft_Click(object sender, RoutedEventArgs e)
         {
             // Set the result and call base method to handle window closure.
-            if (this.DialogResult is string)
+            if (DialogResult is string)
             {
-                DialogResult = ((AccessText)ButtonLeft.Content).Text.Replace("_", "");
+                DialogResult = ((AccessText)ButtonLeft.Content).Text.Replace("_", null);
             }
             base.ButtonLeft_Click(sender, e);
         }
@@ -65,9 +65,9 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         protected override void ButtonMiddle_Click(object sender, RoutedEventArgs e)
         {
             // Set the result and call base method to handle window closure.
-            if (this.DialogResult is string)
+            if (DialogResult is string)
             {
-                DialogResult = ((AccessText)ButtonMiddle.Content).Text.Replace("_", "");
+                DialogResult = ((AccessText)ButtonMiddle.Content).Text.Replace("_", null);
             }
             base.ButtonMiddle_Click(sender, e);
         }
@@ -80,9 +80,9 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         protected override void ButtonRight_Click(object sender, RoutedEventArgs e)
         {
             // Set the result and call base method to handle window closure.
-            if (this.DialogResult is string)
+            if (DialogResult is string)
             {
-                DialogResult = ((AccessText)ButtonRight.Content).Text.Replace("_", "");
+                DialogResult = ((AccessText)ButtonRight.Content).Text.Replace("_", null);
             }
             base.ButtonRight_Click(sender, e);
         }

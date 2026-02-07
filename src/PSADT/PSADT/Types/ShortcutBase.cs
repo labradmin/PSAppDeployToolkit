@@ -5,7 +5,7 @@ namespace PSADT.Types
     /// <summary>
     /// Represents the base class for shortcuts, containing common properties.
     /// </summary>
-    public abstract class ShortcutBase
+    public abstract record ShortcutBase
     {
         /// <summary>
         /// Initializes a new instance of the <see cref="ShortcutBase"/> class with optional properties.
@@ -29,30 +29,34 @@ namespace PSADT.Types
             TargetPath = targetPath;
             IconLocation = iconLocation;
 
-            if (!string.IsNullOrWhiteSpace(iconIndex) && !int.TryParse(iconIndex, out var IconIndex))
+            if (!string.IsNullOrWhiteSpace(iconIndex))
             {
-                throw new ArgumentException("IconIndex must be a numeric value.");
+                if (!int.TryParse(iconIndex, out int parsedIndex))
+                {
+                    throw new ArgumentException("IconIndex must be a numeric value.");
+                }
+                IconIndex = parsedIndex;
             }
         }
 
         /// <summary>
         /// The path to the shortcut file.
         /// </summary>
-        public readonly string Path;
+        public string Path { get; }
 
         /// <summary>
         /// The target path of the shortcut.
         /// </summary>
-        public readonly string TargetPath;
+        public string TargetPath { get; }
 
         /// <summary>
         /// The location of the icon used for the shortcut.
         /// </summary>
-        public readonly string? IconLocation;
+        public string? IconLocation { get; }
 
         /// <summary>
         /// The index of the icon used for the shortcut.
         /// </summary>
-        public readonly int? IconIndex;
+        public int? IconIndex { get; }
     }
 }

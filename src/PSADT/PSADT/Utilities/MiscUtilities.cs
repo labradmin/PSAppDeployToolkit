@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using PSADT.Extensions;
 
@@ -20,7 +21,10 @@ namespace PSADT.Utilities
         /// <param name="value">The collection of strings to process. Each string represents a line.</param>
         /// <returns>An <see cref="IEnumerable{T}"/> of strings with leading and trailing white-space lines removed. The order of
         /// the remaining lines is preserved.</returns>
-        public static IReadOnlyList<string> TrimLeadingTrailingLines(IEnumerable<string> value) => null != value ? value.Select(static s => s.TrimEndRemoveNull()).SkipWhile(string.IsNullOrWhiteSpace).Reverse().SkipWhile(string.IsNullOrWhiteSpace).Reverse().ToList().AsReadOnly() : throw new ArgumentNullException("The input collection cannot be null.", (Exception?)null);
+        public static IReadOnlyList<string> TrimLeadingTrailingLines(IEnumerable<string> value)
+        {
+            return value is not null ? new ReadOnlyCollection<string>([.. value.Select(static s => s.TrimEndRemoveNull()).SkipWhile(string.IsNullOrWhiteSpace).Reverse().SkipWhile(string.IsNullOrWhiteSpace).Reverse()]) : throw new ArgumentNullException("The input collection cannot be null.", (Exception?)null);
+        }
 
         /// <summary>
         /// Trims leading and trailing empty lines from the specified string.
@@ -28,6 +32,32 @@ namespace PSADT.Utilities
         /// <param name="value">The string from which to trim leading and trailing empty lines.</param>
         /// <returns>A string with leading and trailing empty lines removed. If the input string is empty or consists only of
         /// whitespace, returns an empty string.</returns>
-        public static string TrimLeadingTrailingLines(string value) => string.Join("\n", TrimLeadingTrailingLines(value.Split('\n')));
+        public static string TrimLeadingTrailingLines(string value)
+        {
+            return value is not null ? string.Join("\n", TrimLeadingTrailingLines(value.Split('\n'))) : throw new ArgumentNullException(nameof(value));
+        }
+
+        /// <summary>
+        /// Converts a Base64-encoded string to its corresponding byte array representation.
+        /// </summary>
+        /// <param name="base64String">The string that is encoded with base-64 digits. Cannot be null, empty, or consist only of white-space
+        /// characters.</param>
+        /// <returns>A byte array containing the decoded data, or null if the input is not a valid Base64 string.</returns>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="base64String"/> is null, empty, or consists only of white-space characters.</exception>
+        public static byte[]? GetBase64StringBytes(string base64String)
+        {
+            if (string.IsNullOrWhiteSpace(base64String))
+            {
+                throw new ArgumentNullException(nameof(base64String));
+            }
+            try
+            {
+                return Convert.FromBase64String(base64String);
+            }
+            catch (FormatException)
+            {
+                return null;
+            }
+        }
     }
 }

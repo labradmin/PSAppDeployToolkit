@@ -4,6 +4,7 @@ using System.Linq;
 using System.Management.Automation;
 using System.Management.Automation.Runspaces;
 using PSADT.UserInterface.DialogOptions;
+using PSADT.Utilities;
 
 namespace PSADT.UserInterface.Dialogs.Classic
 {
@@ -13,7 +14,7 @@ namespace PSADT.UserInterface.Dialogs.Classic
     /// <remarks>The <see cref="HelpConsole"/> class is intended for use in design-time scenarios and should
     /// not be instantiated directly in runtime mode. Attempting to use the parameterless constructor in runtime mode
     /// will result in an <see cref="InvalidOperationException"/>.</remarks>
-    internal partial class HelpConsole : BaseDialog
+    internal partial class HelpConsole : ClassicBase
     {
         /// <summary>
         /// Initializes a new instance of the <see cref="HelpConsole"/> class.
@@ -36,63 +37,60 @@ namespace PSADT.UserInterface.Dialogs.Classic
             InitializeComponent();
 
             // Apply options to the form if we have any (i.e. not in the designer).
-            if (null != options)
+            if (options is not null)
             {
                 // Null out PSModulePath to prevent any module conflicts.
                 // https://github.com/PowerShell/PowerShell/issues/18530#issuecomment-1325691850
-                Environment.SetEnvironmentVariable("PSModulePath", null);
+                EnvironmentUtilities.RemoveEnvironmentVariable("PSModulePath");
 
-                // Set up a PowerShell initial session state.
-                var iss = InitialSessionState.CreateDefault2();
+                // Set up a PowerShell environment and populate the ComboBox with our modules.
+                InitialSessionState iss = InitialSessionState.CreateDefault2();
                 iss.ExecutionPolicy = options.ExecutionPolicy;
                 iss.ImportPSModule(options.Modules);
-
-                // Set up a runspace and open it for usage.
-                this.runspace = RunspaceFactory.CreateRunspace(iss);
-                this.runspace.Open();
-
-                // Populate the ComboBox with our modules.
-                using (var ps = PowerShell.Create())
+                (runspace = RunspaceFactory.CreateRunspace(iss)).Open();
+                using (PowerShell ps = PowerShell.Create())
                 {
-                    ps.Runspace = this.runspace;
-                    this.comboBox.Items.Clear();
-                    this.comboBox.Items.AddRange(ps.AddCommand("Get-Module").Invoke<PSModuleInfo>().Where(im => options.Modules.Any(om => im.Path.Replace(".psm1", ".psd1") == om.Name && im.Guid == om.Guid && im.Version == om.Version)).ToArray());
+                    ps.Runspace = runspace;
+                    comboBox.Items.Clear();
+                    comboBox.Items.AddRange([.. ps.AddCommand("Get-Module").Invoke<PSModuleInfo>().Where(im => options.Modules.Any(om => im.Path.Replace(".psm1", ".psd1") == om.Name && im.Guid == om.Guid && im.Version == om.Version))]);
                 }
 
                 // Set up the ComboBox event handler.
-                this.comboBox.SelectedIndexChanged += (sender, e) =>
+                comboBox.SelectedIndexChanged += (sender, e) =>
                 {
                     // Update the listbox with the commands from the selected module.
-                    this.listBox.Items.Clear(); this.listBox.Items.AddRange(((PSModuleInfo)this.comboBox.SelectedItem!).ExportedCommands.Keys.ToArray());
+                    listBox.Items.Clear(); listBox.Items.AddRange([.. ((PSModuleInfo)comboBox.SelectedItem!).ExportedCommands.Keys]);
                 };
 
                 // Set up the ListBox event handler.
-                this.listBox.SelectedIndexChanged += (sender, e) =>
+                listBox.SelectedIndexChanged += (sender, e) =>
                 {
-                    using var ps = PowerShell.Create();
-                    ps.Runspace = this.runspace;
-                    this.richTextBox.Clear();
-                    this.richTextBox.Text = string.Join("\n", ps.AddCommand("Get-Help").AddParameter("Name", (string)this.listBox.SelectedItem!).AddParameter("Full", true).AddCommand("Out-String").AddParameter("Width", int.MaxValue).AddParameter("Stream", true).Invoke<string>().Select(static s => !string.IsNullOrWhiteSpace(s) ? s.TrimEnd() : null)).Trim().Replace("<br />", null) + "\n";
+                    using PowerShell ps = PowerShell.Create();
+                    ps.Runspace = runspace;
+                    richTextBox.Clear();
+                    richTextBox.Text = string.Join("\n", ps.AddCommand("Get-Help").AddParameter("Name", (string)listBox.SelectedItem!).AddParameter("Full", true).AddCommand("Out-String").AddParameter("Width", int.MaxValue).AddParameter("Stream", true).Invoke<string>().Select(static s => !string.IsNullOrWhiteSpace(s) ? s.TrimEnd() : null)).Trim().Replace("<br />", null) + "\n";
                 };
 
                 // Ensure the runspace is closed when the form is closed.
-                this.FormClosed += (sender, e) =>
+                FormClosed += (sender, e) =>
                 {
                     // Ensure the runspace is closed when the form is closed.
-                    if (null != this.runspace && this.runspace.RunspaceStateInfo.State == RunspaceState.Opened)
+                    if (runspace?.RunspaceStateInfo.State == RunspaceState.Opened)
                     {
-                        this.runspace.Close();
-                        this.runspace.Dispose();
-                        this.runspace = null!;
+                        runspace.Close();
+                        runspace.Dispose();
                     }
                 };
 
                 // Lastly, set the initial selected index of the ComboBox to the first item, if available.
-                if (this.comboBox.Items.Count > 0)
+                if (comboBox.Items.Count > 0)
                 {
-                    this.comboBox.SelectedIndex = 0;
+                    comboBox.SelectedIndex = 0;
                 }
             }
+
+            // Set the NoWait success flag as the caller may be waiting for it.
+            Load += (sender, e) => DialogManager.SetClientServerOperationSuccess();
         }
 
         /// <summary>
@@ -100,6 +98,7 @@ namespace PSADT.UserInterface.Dialogs.Classic
         /// </summary>
         /// <remarks>A runspace is a container for the execution environment of PowerShell commands. This
         /// field is initialized before use and should not be null during runtime.</remarks>
-        private Runspace runspace = null!;
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2213:Disposable fields should be disposed", Justification = "We can't override the designer's Dispose() implementation.")]
+        private readonly Runspace runspace = null!;
     }
 }

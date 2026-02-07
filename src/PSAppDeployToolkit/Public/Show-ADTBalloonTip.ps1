@@ -55,7 +55,7 @@ function Show-ADTBalloonTip
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -150,6 +150,11 @@ function Show-ADTBalloonTip
                     }
                     $forced = $true
                 }
+                if (!($runAsActiveUser = Get-ADTClientServerUser -AllowSystemFallback))
+                {
+                    Write-ADTLogEntry -Message "Bypassing $($MyInvocation.MyCommand.Name) as there is no active user logged onto the system."
+                    return
+                }
                 if (Test-ADTUserIsBusy)
                 {
                     if (!$Force)
@@ -158,11 +163,6 @@ function Show-ADTBalloonTip
                         return
                     }
                     $forced = $true
-                }
-                if (!($runAsActiveUser = Get-ADTClientServerUser -AllowSystemFallback))
-                {
-                    Write-ADTLogEntry -Message "Bypassing $($MyInvocation.MyCommand.Name) as there is no active user logged onto the system."
-                    return
                 }
 
                 # Establish options class for displaying the balloon tip.

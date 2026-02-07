@@ -27,9 +27,6 @@ function Send-ADTKeys
     .PARAMETER Keys
         The sequence of keys to send. Info on Key input at: http://msdn.microsoft.com/en-us/library/System.Windows.Forms.SendKeys(v=vs.100).aspx
 
-    .PARAMETER WaitSeconds
-        This parameter is obsolete and will be removed in PSAppDeployToolkit 4.2.0. Please use `-WaitDuration` instead.
-
     .PARAMETER WaitDuration
         An optional amount of time to wait after the sending of the keys.
 
@@ -49,6 +46,11 @@ function Send-ADTKeys
         Send the sequence of keys "Hello world" to the application titled "foobar - Notepad".
 
     .EXAMPLE
+        Send-ADTKeys -WindowTitle 'foobar - Notepad' -Keys 'Hello world' WaitDuration 00:00:05
+
+        Send the sequence of keys "Hello world" to the application titled "foobar - Notepad" and wait 5 seconds.
+
+    .EXAMPLE
         Send-ADTKeys -WindowTitle 'foobar - Notepad' -Keys 'Hello world' WaitDuration (New-TimeSpan -Seconds 5)
 
         Send the sequence of keys "Hello world" to the application titled "foobar - Notepad" and wait 5 seconds.
@@ -63,7 +65,7 @@ function Send-ADTKeys
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -73,6 +75,8 @@ function Send-ADTKeys
         https://psappdeploytoolkit.com/docs/reference/functions/Send-ADTKeys
     #>
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'WindowTitle', Justification = "This parameter is used within delegates that PSScriptAnalyzer has no visibility of. See https://github.com/PowerShell/PSScriptAnalyzer/issues/1472 for more details.")]
+    [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'WindowHandle', Justification = "This parameter is used within delegates that PSScriptAnalyzer has no visibility of. See https://github.com/PowerShell/PSScriptAnalyzer/issues/1472 for more details.")]
     [CmdletBinding()]
     param
     (
@@ -91,12 +95,6 @@ function Send-ADTKeys
 
         [Parameter(Mandatory = $false, ParameterSetName = 'WindowTitle')]
         [Parameter(Mandatory = $false, ParameterSetName = 'WindowHandle')]
-        [System.Obsolete("Please use 'WaitDuration' instead as this will be removed in PSAppDeployToolkit 4.2.0.")]
-        [ValidateNotNullOrEmpty()]
-        [System.Nullable[System.Int32]]$WaitSeconds,
-
-        [Parameter(Mandatory = $false, ParameterSetName = 'WindowTitle')]
-        [Parameter(Mandatory = $false, ParameterSetName = 'WindowHandle')]
         [ValidateNotNullOrEmpty()]
         [System.TimeSpan]$WaitDuration
     )
@@ -104,17 +102,7 @@ function Send-ADTKeys
     begin
     {
         Initialize-ADTFunction -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState
-        $gawtParams = @{ $PSCmdlet.ParameterSetName = Get-Variable -Name $PSCmdlet.ParameterSetName -ValueOnly }
-
-        # Log the deprecation of -WaitSeconds to the log.
-        if ($PSBoundParameters.ContainsKey('WaitSeconds'))
-        {
-            Write-ADTLogEntry -Message "The parameter [-WaitSeconds] is obsolete and will be removed in PSAppDeployToolkit 4.2.0. Please use [-WaitDuration] instead." -Severity 2
-            if (!$PSBoundParameters.ContainsKey('WaitDuration'))
-            {
-                $WaitDuration = [System.TimeSpan]::FromSeconds($WaitSeconds)
-            }
-        }
+        $gawtParams = @{ $PSCmdlet.ParameterSetName = $PSBoundParameters.($PSCmdlet.ParameterSetName) }
     }
 
     process

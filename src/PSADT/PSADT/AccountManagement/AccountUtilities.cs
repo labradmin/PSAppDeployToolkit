@@ -2,15 +2,18 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.DirectoryServices;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Security.Principal;
+using PSADT.Foundation;
 using PSADT.LibraryInterfaces;
-using PSADT.Module;
+using PSADT.LibraryInterfaces.Extensions;
+using PSADT.LibraryInterfaces.SafeHandles;
 using PSADT.ProcessManagement;
 using PSADT.Security;
 using Windows.Win32;
+using Windows.Win32.Security.Authentication.Identity;
 
 namespace PSADT.AccountManagement
 {
@@ -22,6 +25,7 @@ namespace PSADT.AccountManagement
         /// <summary>
         /// Static constructor for readonly constant values.
         /// </summary>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1810:Initialize reference type static fields inline", Justification = "The static constructor is very much needed here.")]
         static AccountUtilities()
         {
             // Cache information about the current user.
@@ -33,21 +37,32 @@ namespace PSADT.AccountManagement
             }
 
             // Build out process/session id information.
-            Kernel32.ProcessIdToSessionId(CallerProcessId = PInvoke.GetCurrentProcessId(), out CallerSessionId);
+            _ = Kernel32.ProcessIdToSessionId(CallerProcessId = PInvoke.GetCurrentProcessId(), out CallerSessionId);
 
-            // Initialize the lookup table for well-known SIDs. Continue on any errors.
-            Dictionary<WellKnownSidType, SecurityIdentifier> wellKnownSids = [];
-            foreach (var wellKnownSid in typeof(WellKnownSidType).GetEnumValues().Cast<WellKnownSidType>())
+            // Retrieve the local account domain SID.
+            _ = AdvApi32.LsaOpenPolicy(null, new() { Length = (uint)Marshal.SizeOf<LSA_OBJECT_ATTRIBUTES>() }, LSA_POLICY_ACCESS.POLICY_VIEW_LOCAL_INFORMATION, out LsaCloseSafeHandle hPolicy);
+            using (hPolicy)
             {
-                try
+                _ = AdvApi32.LsaQueryInformationPolicy(hPolicy, POLICY_INFORMATION_CLASS.PolicyAccountDomainInformation, out SafeLsaFreeMemoryHandle buf);
+                using (buf)
                 {
-                    wellKnownSids.Add(wellKnownSid, new(wellKnownSid, null));
+                    ref readonly POLICY_ACCOUNT_DOMAIN_INFO policyAccountDomainInfo = ref buf.AsReadOnlyStructure<POLICY_ACCOUNT_DOMAIN_INFO>();
+                    LocalAccountDomainSid = policyAccountDomainInfo.DomainSid.ToSecurityIdentifier();
                 }
-                catch
+            }
+
+            // Initialize the lookup table for well-known SIDs, skipping ones that don't construct.
+            Array wellKnownSidTypes = typeof(WellKnownSidType).GetEnumValues();
+            Dictionary<WellKnownSidType, SecurityIdentifier> wellKnownSids = new(wellKnownSidTypes.Length);
+            foreach (WellKnownSidType wellKnownSidType in wellKnownSidTypes)
+            {
+                if (wellKnownSids.ContainsKey(wellKnownSidType) || wellKnownSidType == WellKnownSidType.LogonIdsSid || (int)wellKnownSidType == 80 || (int)wellKnownSidType == 83)  // WinLocalLogonSid/WinApplicationPackageAuthoritySid.
                 {
                     continue;
                 }
+                wellKnownSids.Add(wellKnownSidType, new(wellKnownSidType, LocalAccountDomainSid));
             }
+            LocalSystemSid = wellKnownSids[WellKnownSidType.LocalSystemSid];
             WellKnownSidLookupTable = new(wellKnownSids);
 
             // Determine if the caller is the local system account.
@@ -56,7 +71,7 @@ namespace PSADT.AccountManagement
             CallerUsingServiceUI = ProcessUtilities.GetParentProcesses().Any(static p => p.ProcessName.Equals("ServiceUI", StringComparison.OrdinalIgnoreCase));
 
             // Generate a RunAsActiveUser object for the current user.
-            CallerRunAsActiveUser = new(CallerUsername, CallerSid, CallerSessionId);
+            CallerRunAsActiveUser = new(CallerUsername, CallerSid, CallerSessionId, CallerIsAdmin);
         }
 
         /// <summary>
@@ -72,11 +87,9 @@ namespace PSADT.AccountManagement
         public static SecurityIdentifier GetWellKnownSid(WellKnownSidType wellKnownSidType)
         {
             // Return the SecurityIdentifier for the specified well-known SID type.
-            if (!WellKnownSidLookupTable.TryGetValue(wellKnownSidType, out SecurityIdentifier? sid))
-            {
-                throw new ArgumentException($"The specified well-known SID type '{wellKnownSidType}' is not recognized or not available in this context.");
-            }
-            return sid;
+            return !WellKnownSidLookupTable.TryGetValue(wellKnownSidType, out SecurityIdentifier? sid)
+                ? throw new ArgumentException($"The specified well-known SID type '{wellKnownSidType}' is not recognized or not available in this context.")
+                : sid;
         }
 
         /// <summary>
@@ -88,6 +101,7 @@ namespace PSADT.AccountManagement
         internal static bool IsSidMemberOfWellKnownGroup(SecurityIdentifier targetSid, WellKnownSidType wellKnownGroupSid)
         {
             // Internal method to recursively check group membership.
+            [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "No idea, but the compiler just doesn't understand that this is OK.")]
             static bool CheckMemberRecursive(DirectoryEntry groupEntry, SecurityIdentifier targetSid, HashSet<string> visited)
             {
                 // Return early if we have no members to check.
@@ -107,14 +121,14 @@ namespace PSADT.AccountManagement
                     }
 
                     // Skip over the SID if it's malformed.
-                    var sid = memberEntry.Properties["ObjectSID"].Value;
-                    if (null == sid)
+                    byte[]? sid = (byte[]?)memberEntry.Properties["ObjectSID"].Value;
+                    if (sid is null)
                     {
                         continue;
                     }
 
                     // Return true if the current SID is the one we're testing for or if the member is a group that contains the target SID.
-                    if (new SecurityIdentifier((byte[])sid, 0) == targetSid || (memberEntry.SchemaClassName == "Group" && CheckMemberRecursive(memberEntry, targetSid, visited)))
+                    if (new SecurityIdentifier(sid, 0) == targetSid || (memberEntry.SchemaClassName == "Group" && CheckMemberRecursive(memberEntry, targetSid, visited)))
                     {
                         return true;
                     }
@@ -181,6 +195,22 @@ namespace PSADT.AccountManagement
         /// Gets a read-only list of privileges associated with the caller.
         /// </summary>
         public static readonly IReadOnlyList<SE_PRIVILEGE> CallerPrivileges = PrivilegeManager.GetPrivileges();
+
+        /// <summary>
+        /// Represents the security identifier (SID) for the local system account (NT AUTHORITY\SYSTEM).
+        /// </summary>
+        /// <remarks>This SID is commonly used to grant permissions to the local system account, which has
+        /// extensive privileges on the local computer. Use this value when specifying access control or auditing rules
+        /// that should apply to the system account.</remarks>
+        public static readonly SecurityIdentifier LocalSystemSid;
+
+        /// <summary>
+        /// Represents the security identifier (SID) for the local account domain.
+        /// </summary>
+        /// <remarks>This SID is used to identify the local account domain on the system. It is typically
+        /// used in scenarios involving security-related operations, such as access control or user account
+        /// management.</remarks>
+        public static readonly SecurityIdentifier LocalAccountDomainSid;
 
         /// <summary>
         /// A read-only dictionary that maps <see cref="WellKnownSidType"/> values to their corresponding <see

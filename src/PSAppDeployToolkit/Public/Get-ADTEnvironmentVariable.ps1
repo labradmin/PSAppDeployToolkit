@@ -44,7 +44,7 @@ function Get-ADTEnvironmentVariable
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -86,17 +86,13 @@ function Get-ADTEnvironmentVariable
                             return
                         }
                         Write-ADTLogEntry -Message "Getting $(($logSuffix = "the environment variable [$($Variable)] for [$($runAsActiveUser.NTAccount)]"))."
-                        if (($result = Invoke-ADTClientServerOperation -GetEnvironmentVariable -User $runAsActiveUser -Variable $Variable) -eq [PSADT.ClientServer.CommonUtilities]::ArgumentSeparator)
-                        {
-                            return
-                        }
-                        return $result
+                        return Invoke-ADTClientServerOperation -GetEnvironmentVariable -User $runAsActiveUser -Variable $Variable
                     }
                     Write-ADTLogEntry -Message "Getting $(($logSuffix = "the environment variable [$($Variable)] for [$Target]"))."
-                    return [System.Environment]::GetEnvironmentVariable($Variable, $Target)
+                    return [PSADT.Utilities.EnvironmentUtilities]::GetEnvironmentVariable($Variable, $Target)
                 }
                 Write-ADTLogEntry -Message "Getting $(($logSuffix = "the environment variable [$($Variable)]"))."
-                return [System.Environment]::GetEnvironmentVariable($Variable)
+                return [PSADT.Utilities.EnvironmentUtilities]::GetEnvironmentVariable($Variable)
             }
             catch
             {

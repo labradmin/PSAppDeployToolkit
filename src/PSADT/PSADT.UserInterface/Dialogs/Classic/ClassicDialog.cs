@@ -1,10 +1,17 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
+using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
+using Microsoft.Win32;
 using PSADT.LibraryInterfaces;
 using PSADT.UserInterface.DialogOptions;
+using PSADT.UserInterface.Utilities;
+using PSADT.Utilities;
+using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.UI.WindowsAndMessaging;
 
@@ -13,7 +20,7 @@ namespace PSADT.UserInterface.Dialogs.Classic
     /// <summary>
     /// Base class for classic dialog forms.
     /// </summary>
-    internal partial class ClassicDialog : BaseDialog, IDialogBase
+    internal partial class ClassicDialog : ClassicBase, IDialogBase
     {
         /// <summary>
         /// Initializes a new instance of the <see cref="ClassicDialog"/> class.
@@ -36,40 +43,40 @@ namespace PSADT.UserInterface.Dialogs.Classic
             InitializeComponent();
 
             // Apply options to the form if we have any (i.e. not in the designer).
-            if (null != options)
+            if (options is not null)
             {
                 // Base properties.
-                this.SuspendLayout();   
-                this.Text = StripFormattingTags(options.AppTitle);
-                this.Icon = ClassicAssets.GetIcon(options.AppIconImage);
-                this.TopMost = options.DialogTopMost;
-                this.ActiveControl = this.buttonDefault;
-                this.FormClosing += Form_FormClosing;
-                this.Load += Form_Load;
-                this.ResumeLayout();
+                SuspendLayout();
+                Text = StripFormattingTags(options.AppTitle);
+                Icon = GetIcon(options.AppTaskbarIconImage ?? options.AppIconImage);
+                TopMost = options.DialogTopMost;
+                ActiveControl = buttonDefault;
+                FormClosing += Form_FormClosing;
+                Load += Form_Load;
+                ResumeLayout();
 
                 // Set the expiry timer if specified.
-                if (null != options.DialogExpiryDuration && options.DialogExpiryDuration.Value != TimeSpan.Zero)
+                if (options.DialogExpiryDuration > TimeSpan.Zero)
                 {
-                    this.expiryTimer = new Timer { Interval = (int)options.DialogExpiryDuration.Value.TotalMilliseconds };
-                    this.expiryTimer.Tick += (s, e) => CloseDialog();
+                    expiryTimer = new Timer { Interval = (int)options.DialogExpiryDuration.Value.TotalMilliseconds };
+                    expiryTimer.Tick += (s, e) => CloseDialog();
                 }
 
                 // PersistPrompt timer code.
-                if (null != options.DialogPersistInterval && options.DialogPersistInterval.Value != TimeSpan.Zero)
+                if (options.DialogPersistInterval > TimeSpan.Zero)
                 {
-                    this.persistTimer = new Timer { Interval = (int)options.DialogPersistInterval.Value.TotalMilliseconds };
-                    this.persistTimer.Tick += PersistTimer_Tick;
+                    persistTimer = new Timer { Interval = (int)options.DialogPersistInterval.Value.TotalMilliseconds };
+                    persistTimer.Tick += PersistTimer_Tick;
                 }
 
                 // Set the optional dialog position.
-                if (null != options.DialogPosition)
+                if (options.DialogPosition is not null)
                 {
                     dialogPosition = options.DialogPosition.Value;
                 }
 
                 // Set whether the dialog can be moved.
-                if (null != options.DialogAllowMove)
+                if (options.DialogAllowMove is not null)
                 {
                     dialogAllowMove = options.DialogAllowMove.Value;
                 }
@@ -79,7 +86,10 @@ namespace PSADT.UserInterface.Dialogs.Classic
         /// <summary>
         /// Redefined ShowDialog method to allow for custom behavior.
         /// </summary>
-        public new void ShowDialog() => base.ShowDialog();
+        public new void ShowDialog()
+        {
+            _ = base.ShowDialog();
+        }
 
         /// <summary>
         /// Closes the dialog.
@@ -98,9 +108,9 @@ namespace PSADT.UserInterface.Dialogs.Classic
         /// <param name="options">The options containing the banner image to display. Cannot be <see langword="null"/>.</param>
         protected void SetPictureBox(PictureBox pictureBox, BaseOptions options)
         {
-            double dpiScale = (double)User32.GetDpiForWindow((HWND)this.Handle) / 96.0;
-            pictureBox.Image = ClassicAssets.GetBanner(options.AppBannerImage);
-            pictureBox.Size = new((int)Math.Ceiling(450.0 * dpiScale), (int)Math.Ceiling(450.0 * ((double)pictureBox.Image.Height / (double)pictureBox.Image.Width) * dpiScale));
+            double dpiScale = User32.GetDpiForWindow((HWND)Handle) / 96.0;
+            pictureBox.Image = GetBanner(options.AppBannerImage);
+            pictureBox.Size = new((int)Math.Ceiling(450.0 * dpiScale), (int)Math.Ceiling(450.0 * (pictureBox.Image.Height / (double)pictureBox.Image.Width) * dpiScale));
         }
 
         /// <summary>
@@ -108,28 +118,40 @@ namespace PSADT.UserInterface.Dialogs.Classic
         /// </summary>
         /// <param name="ts"></param>
         /// <returns></returns>
-        protected static string FormatTime(TimeSpan ts) => $"{ts.Days * 24 + ts.Hours}:{ts.Minutes:D2}:{ts.Seconds:D2}";
+        protected static string FormatTime(TimeSpan ts)
+        {
+            return $"{(ts.Days * 24) + ts.Hours}:{ts.Minutes:D2}:{ts.Seconds:D2}";
+        }
 
         /// <summary>
         /// Handles the click event of the left button.
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        protected virtual void ButtonLeft_Click(object sender, EventArgs e) => CloseDialog();
+        protected virtual void ButtonLeft_Click(object sender, EventArgs e)
+        {
+            CloseDialog();
+        }
 
         /// <summary>
         /// Handles the click event of the middle button.
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        protected virtual void ButtonMiddle_Click(object sender, EventArgs e) => CloseDialog();
+        protected virtual void ButtonMiddle_Click(object sender, EventArgs e)
+        {
+            CloseDialog();
+        }
 
         /// <summary>
         /// Handles the click event of the right button.
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        protected virtual void ButtonRight_Click(object sender, EventArgs e) => CloseDialog();
+        protected virtual void ButtonRight_Click(object sender, EventArgs e)
+        {
+            CloseDialog();
+        }
 
         /// <summary>
         /// Handles the form's load event.
@@ -139,24 +161,28 @@ namespace PSADT.UserInterface.Dialogs.Classic
         protected virtual void Form_Load(object? sender, EventArgs e)
         {
             // Adjust the menu depending on our config options.
-            using (var menuHandle = User32.GetSystemMenu((HWND)this.Handle, false))
+            using (DestroyMenuSafeHandle menuHandle = User32.GetSystemMenu((HWND)Handle, false))
             {
                 // Disable the close button on the form. Failing that, disable the ControlBox.
                 try
                 {
-                    User32.EnableMenuItem(menuHandle, WM_SYSCOMMAND.SC_CLOSE, MENU_ITEM_FLAGS.MF_GRAYED);
+                    _ = User32.EnableMenuItem(menuHandle, WM_SYSCOMMAND.SC_CLOSE, MENU_ITEM_FLAGS.MF_GRAYED);
                 }
-                catch
+                catch (Exception ex) when (ex.Message is not null)
                 {
-                    this.ControlBox = false;
+                    ControlBox = false;
                 }
 
                 // Disable the move command on the system menu if we can't move the dialog.
                 if (!dialogAllowMove)
                 {
-                    User32.RemoveMenu(menuHandle, WM_SYSCOMMAND.SC_MOVE, MENU_ITEM_FLAGS.MF_BYCOMMAND);
+                    _ = User32.RemoveMenu(menuHandle, WM_SYSCOMMAND.SC_MOVE, MENU_ITEM_FLAGS.MF_BYCOMMAND);
                 }
             }
+
+            // Subscribe to system events for display and user preference changes.
+            SystemEvents.DisplaySettingsChanged += SystemEvents_DisplaySettingsChanged;
+            SystemEvents.UserPreferenceChanged += SystemEvents_UserPreferenceChanged;
 
             // Set the form's starting location.
             PositionForm();
@@ -164,6 +190,45 @@ namespace PSADT.UserInterface.Dialogs.Classic
             // Start the persist timer if it's available.
             persistTimer?.Start();
             expiryTimer?.Start();
+
+            // Set the NoWait success flag as the caller may be waiting for it.
+            DialogManager.SetClientServerOperationSuccess();
+        }
+
+        /// <summary>
+        /// Handles the event that occurs when the display settings change, ensuring the form is repositioned
+        /// appropriately.
+        /// </summary>
+        /// <remarks>This method is intended to respond to system-level display configuration changes,
+        /// such as resolution or monitor layout updates. It ensures that the form remains correctly positioned after
+        /// such changes by invoking the repositioning logic on the UI thread.</remarks>
+        /// <param name="sender">The source of the event, typically the system event manager.</param>
+        /// <param name="e">An <see cref="EventArgs"/> instance containing event data.</param>
+        private void SystemEvents_DisplaySettingsChanged(object? sender, EventArgs e)
+        {
+            // We're on a thread pool thread → marshal back to UI thread.
+            if (!IsDisposed && IsHandleCreated)
+            {
+                _ = BeginInvoke(PositionForm);
+            }
+        }
+
+        /// <summary>
+        /// Handles the UserPreferenceChanged event to respond to changes in user preferences such as general, desktop,
+        /// or window settings.
+        /// </summary>
+        /// <remarks>This method is typically used to reposition or update the form when relevant user
+        /// preferences change, such as when the taskbar is moved or resized. It only responds to changes in the
+        /// General, Desktop, or Window categories and ignores other categories.</remarks>
+        /// <param name="sender">The source of the event, typically the system event dispatcher.</param>
+        /// <param name="e">An object containing data about the user preference change, including the category of the change.</param>
+        private void SystemEvents_UserPreferenceChanged(object? sender, UserPreferenceChangedEventArgs e)
+        {
+            // Taskbar moves / size changes often show up here.
+            if (!IsDisposed && IsHandleCreated && (e.Category == UserPreferenceCategory.General || e.Category == UserPreferenceCategory.Desktop || e.Category == UserPreferenceCategory.Window))
+            {
+                _ = BeginInvoke(PositionForm);
+            }
         }
 
         /// <summary>
@@ -180,15 +245,19 @@ namespace PSADT.UserInterface.Dialogs.Classic
                 return;
             }
 
+            // Unsubscribe from system events.
+            SystemEvents.DisplaySettingsChanged -= SystemEvents_DisplaySettingsChanged;
+            SystemEvents.UserPreferenceChanged -= SystemEvents_UserPreferenceChanged;
+
             // We're actually closing. Perform certain disposals here
             // since we can't mess with the designer's Dispose override.
-            if (null != persistTimer)
+            if (persistTimer is not null)
             {
                 persistTimer.Stop();
                 persistTimer.Dispose();
                 persistTimer = null;
             }
-            if (null != expiryTimer)
+            if (expiryTimer is not null)
             {
                 expiryTimer.Stop();
                 expiryTimer.Dispose();
@@ -200,7 +269,10 @@ namespace PSADT.UserInterface.Dialogs.Classic
         /// Tests whether this form is allowed to close down.
         /// </summary>
         /// <returns></returns>
-        protected bool CanClose() => canClose;
+        protected bool CanClose()
+        {
+            return canClose;
+        }
 
         /// <summary>
         /// Restores the window to its normal state and repositions it to its starting location.
@@ -209,9 +281,9 @@ namespace PSADT.UserInterface.Dialogs.Classic
         protected void RestoreWindow()
         {
             // Reset the window and restore its location.
-            this.WindowState = FormWindowState.Normal;
-            this.Location = startingPoint;
-            this.BringToFront();
+            WindowState = FormWindowState.Normal;
+            Location = startingPoint;
+            BringToFront();
         }
 
         /// <summary>
@@ -221,7 +293,7 @@ namespace PSADT.UserInterface.Dialogs.Classic
         protected void ResetPersistTimer()
         {
             // Reset the persist timer to its initial state.
-            if (null != persistTimer)
+            if (persistTimer is not null)
             {
                 persistTimer.Stop();
                 persistTimer.Start();
@@ -233,34 +305,40 @@ namespace PSADT.UserInterface.Dialogs.Classic
         /// with their corresponding plain text content.
         /// </summary>
         /// <remarks>This method processes text to remove specific formatting tags, such as bold, italic,
-        /// accent, and URL tags, as defined by the <see cref="DialogTools.TextFormattingRegex"/> regular expression.
-        /// The content within these tags is preserved and included in the returned string.</remarks>
+        /// accent, and URL tags, as defined by the <see cref="DialogManager.TextFormattingRegex"/> regular expression.
+        /// The content within these tags is preserved and included in the returned string. Handles nested tags properly
+        /// by repeatedly processing the text until all tags are removed.</remarks>
         /// <param name="text">The input string containing formatting tags to be stripped.</param>
         /// <returns>A string with all recognized formatting tags replaced by their plain text equivalents.</returns>
-        protected string StripFormattingTags(string text)
+        protected static string StripFormattingTags(string text)
         {
-            foreach (Match match in DialogTools.TextFormattingRegex.Matches(text))
+            foreach (Match match in DialogManager.TextFormattingRegex.Matches(text))
             {
-                if (match.Groups["UrlLink"].Success)
+                if (match.Groups["UrlLinkSimple"] is Group urlLinkSimple && urlLinkSimple.Success)
                 {
-                    text = text.Replace(match.Groups["UrlLink"].Value, match.Groups["UrlLinkContent"].Value);
+                    text = text.Replace(urlLinkSimple.Value, match.Groups["UrlLinkSimpleContent"].Value);
                 }
-                else if (match.Groups["Accent"].Success)
+                else if (match.Groups["UrlLinkDescriptive"] is Group urlLinkDescriptive && urlLinkDescriptive.Success)
                 {
-                    text = text.Replace(match.Groups["Accent"].Value, match.Groups["AccentText"].Value);
+                    text = text.Replace(urlLinkDescriptive.Value, match.Groups["UrlLinkDescription"].Value);
                 }
-                else if (match.Groups["Bold"].Success)
+                else
                 {
-                    text = text.Replace(match.Groups["Bold"].Value, match.Groups["BoldText"].Value);
-                }
-                else if (match.Groups["Italic"].Success)
-                {
-                    text = text.Replace(match.Groups["Italic"].Value, match.Groups["ItalicText"].Value);
+                    foreach (Group formattingTag in match.Groups.OfType<Group>().Where(static g => g.Success && (g.Name.StartsWith("Open", StringComparison.Ordinal) || g.Name.StartsWith("Close", StringComparison.Ordinal))))
+                    {
+                        text = text.Replace(formattingTag.Value, null);
+                    }
                 }
             }
             return text;
         }
 
+        /// <summary>
+        /// Processes Windows messages for the window, preventing movement when not allowed.
+        /// </summary>
+        /// <remarks>If movement of the window is not permitted, system commands to move the window are
+        /// ignored. All other messages are processed normally by the base implementation.</remarks>
+        /// <param name="m">A reference to the Windows message to be processed.</param>
         protected override void WndProc(ref Message m)
         {
             // Ignore any attempt to move the window.
@@ -274,11 +352,11 @@ namespace PSADT.UserInterface.Dialogs.Classic
         /// <summary>
         /// Positions the form on the screen based on the specified dialog position.
         /// </summary>
-        /// <remarks>The form is positioned within the working area of the screen that contains the form. The position is determined by the <see cref="_dialogPosition"/> field, which specifies predefined locations such as top-left, center, or bottom-right. If the calculated position exceeds the working area bounds, it is clamped to ensure the form remains fully visible.</remarks>
+        /// <remarks>The form is positioned within the working area of the screen that contains the form. The position is determined by the <see cref="dialogPosition"/> field, which specifies predefined locations such as top-left, center, or bottom-right. If the calculated position exceeds the working area bounds, it is clamped to ensure the form remains fully visible.</remarks>
         private void PositionForm()
         {
             // Get the working area (pixels not DIPs)
-            var screen = Screen.FromControl(this);
+            Screen screen = Screen.FromControl(this);
             Rectangle workingArea = screen.WorkingArea;
 
             double left, top;
@@ -286,55 +364,55 @@ namespace PSADT.UserInterface.Dialogs.Classic
             {
                 case DialogPosition.TopLeft:
                     left = workingArea.Left;
-                    top  = workingArea.Top;
+                    top = workingArea.Top;
                     break;
 
                 case DialogPosition.Top:
                     left = workingArea.Left + ((workingArea.Width - Width) / 2);
-                    top  = workingArea.Top;
+                    top = workingArea.Top;
                     break;
 
                 case DialogPosition.TopRight:
                     left = workingArea.Right - Width;
-                    top  = workingArea.Top;
+                    top = workingArea.Top;
                     break;
 
                 case DialogPosition.TopCenter:
                     left = workingArea.Left + ((workingArea.Width - Width) / 2);
-                    top  = workingArea.Top + ((workingArea.Height - Height) * (1.0 / 6.0));
+                    top = workingArea.Top + ((workingArea.Height - Height) * (1.0 / 6.0));
                     break;
 
                 case DialogPosition.BottomLeft:
                     left = workingArea.Left;
-                    top  = workingArea.Bottom - Height;
+                    top = workingArea.Bottom - Height;
                     break;
 
                 case DialogPosition.Bottom:
                     left = workingArea.Left + ((workingArea.Width - Width) / 2);
-                    top  = workingArea.Bottom - Height;
+                    top = workingArea.Bottom - Height;
                     break;
 
                 case DialogPosition.BottomCenter:
                     left = workingArea.Left + ((workingArea.Width - Width) / 2);
-                    top  = workingArea.Top  + ((workingArea.Height - Height) * (5.0 / 6.0));
+                    top = workingArea.Top + ((workingArea.Height - Height) * (5.0 / 6.0));
                     break;
 
                 case DialogPosition.BottomRight:
                     left = workingArea.Right - Width;
-                    top  = workingArea.Bottom - Height;
+                    top = workingArea.Bottom - Height;
                     break;
 
                 case DialogPosition.Center:
                 case DialogPosition.Default:
                 default:
                     left = workingArea.Left + ((workingArea.Width - Width) / 2);
-                    top  = workingArea.Top  + ((workingArea.Height - Height) / 2);
+                    top = workingArea.Top + ((workingArea.Height - Height) / 2);
                     break;
             }
 
             // Clamp to working-area bounds
-            left = Math.Max(workingArea.Left, Math.Min(left, workingArea.Right  - Width));
-            top  = Math.Max(workingArea.Top, Math.Min(top, workingArea.Bottom - Height));
+            left = Math.Max(workingArea.Left, Math.Min(left, workingArea.Right - Width));
+            top = Math.Max(workingArea.Top, Math.Min(top, workingArea.Bottom - Height));
 
             // Align positions to whole pixels.
             left = Math.Floor(left);
@@ -342,8 +420,8 @@ namespace PSADT.UserInterface.Dialogs.Classic
 
             // Adjust for workArea offset.
             string dialogPosName = dialogPosition.ToString();
-            left += dialogPosName.EndsWith("Right") ? 1 : dialogPosName.EndsWith("Left") ? -1 : 0;
-            top += dialogPosName.StartsWith("Bottom") ? 1 : dialogPosName.StartsWith("Top") ? -1 : 0;
+            left += dialogPosName.EndsWith("Right", StringComparison.Ordinal) ? 1 : dialogPosName.EndsWith("Left", StringComparison.Ordinal) ? -1 : 0;
+            top += dialogPosName.StartsWith("Bottom", StringComparison.Ordinal) ? 1 : dialogPosName.StartsWith("Top", StringComparison.Ordinal) ? -1 : 0;
 
             // Set the form’s location
             Location = startingPoint = new((int)left, (int)top);
@@ -354,11 +432,68 @@ namespace PSADT.UserInterface.Dialogs.Classic
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void PersistTimer_Tick(object? sender, EventArgs e) => RestoreWindow();
+        private void PersistTimer_Tick(object? sender, EventArgs e)
+        {
+            RestoreWindow();
+        }
+
+        /// <summary>
+        /// Get the icon for the dialog.
+        /// </summary>
+        /// <param name="path"></param>
+        /// <returns></returns>
+        internal static Icon GetIcon(string path)
+        {
+            // Use a cached icon if available, otherwise load and cache it before returning it.
+            if (!iconCache.TryGetValue(path, out Icon? icon))
+            {
+                if (MiscUtilities.GetBase64StringBytes(path) is byte[] base64Bytes)
+                {
+                    using MemoryStream ms = new(base64Bytes);
+                    using Bitmap base64Bitmap = (Bitmap)Image.FromStream(ms);
+                    using Icon base64Icon = DrawingUtilities.ConvertBitmapToIcon(base64Bitmap);
+                    icon = (Icon)base64Icon.Clone();
+                }
+                else
+                {
+                    using Icon source = !Path.GetExtension(path).Equals(".ico", StringComparison.OrdinalIgnoreCase) ? DrawingUtilities.ConvertBitmapToIcon(path) : new(path);
+                    icon = (Icon)source.Clone();
+                }
+                iconCache.Add(path, icon);
+            }
+            return icon;
+        }
+
+        /// <summary>
+        /// Get the banner image for the dialog.
+        /// </summary>
+        /// <param name="path"></param>
+        /// <returns></returns>
+        internal static Bitmap GetBanner(string path)
+        {
+            // Use a cached image if available, otherwise load and cache it before returning it.
+            if (!imageCache.TryGetValue(path, out Bitmap? image))
+            {
+                if (MiscUtilities.GetBase64StringBytes(path) is byte[] base64Bytes)
+                {
+                    using MemoryStream ms = new(base64Bytes);
+                    using Image base64Image = Image.FromStream(ms);
+                    image = (Bitmap)base64Image.Clone();
+                }
+                else
+                {
+                    using Image source = Image.FromFile(path);
+                    image = (Bitmap)source.Clone();
+                }
+                imageCache.Add(path, image);
+            }
+            return image;
+        }
 
         /// <summary>
         /// The result of the dialog.
         /// </summary>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1061:Do not hide base class methods", Justification = "The redefinition of this field is by design.")]
         public new object DialogResult { get; private protected set; } = "Timeout";
 
         /// <summary>
@@ -369,16 +504,18 @@ namespace PSADT.UserInterface.Dialogs.Classic
         /// <summary>
         /// Flag to indicate if the dialog can be closed.
         /// </summary>
-        private bool canClose = false;
+        private bool canClose;
 
         /// <summary>
         /// A timer used to restore the dialog's position on the screen at a configured interval.
         /// </summary>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2213:Disposable fields should be disposed", Justification = "We can't override the designer's Dispose() implementation.")]
         private Timer? persistTimer;
 
         /// <summary>
         /// A timer used to close the dialog at a configured interval after no user response.
         /// </summary>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2213:Disposable fields should be disposed", Justification = "We can't override the designer's Dispose() implementation.")]
         private Timer? expiryTimer;
 
         /// <summary>
@@ -391,5 +528,15 @@ namespace PSADT.UserInterface.Dialogs.Classic
         /// Indicates whether the dialog is allowed to be moved.
         /// </summary>
         private readonly bool dialogAllowMove = true;
+
+        /// <summary>
+        /// Cache for icons to avoid loading them multiple times.
+        /// </summary>
+        private static readonly Dictionary<string, Icon> iconCache = [];
+
+        /// <summary>
+        /// Cache for banners to avoid loading them multiple times.
+        /// </summary>
+        private static readonly Dictionary<string, Bitmap> imageCache = [];
     }
 }

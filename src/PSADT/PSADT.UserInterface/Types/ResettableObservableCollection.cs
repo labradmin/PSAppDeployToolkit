@@ -1,7 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
-using System.Linq;
 
 namespace PSADT.UserInterface.Types
 {
@@ -15,15 +14,17 @@ namespace PSADT.UserInterface.Types
         /// Resets the underlying ObservableCollection with the provided items.
         /// </summary>
         /// <param name="items"></param>
+        /// <param name="force"></param>
         internal void ResetItems(IEnumerable<T> items, bool force = false)
         {
-            if (!force && !items.Any() && Count == 0)
+            T[] incoming = [.. items];
+            if (!force && incoming.Length == 0 && Count == 0)
             {
                 return;
             }
             _suppressNotification = true;
             ClearItems();
-            foreach (var item in items)
+            foreach (T item in incoming)
             {
                 Add(item);
             }
@@ -46,6 +47,6 @@ namespace PSADT.UserInterface.Types
         /// <summary>
         /// Private state flag to suppress CollectionChanged events until the collection has been reset.
         /// </summary>
-        private bool _suppressNotification = false;
+        private bool _suppressNotification;
     }
 }

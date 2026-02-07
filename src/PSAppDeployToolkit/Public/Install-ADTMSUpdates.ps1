@@ -8,12 +8,12 @@ function Install-ADTMSUpdates
 {
     <#
     .SYNOPSIS
-        Install all Microsoft Updates in a given directory. This function has been deprecated and will be removed from PSAppDeployToolkit 4.2.0.
+        Install all Microsoft Updates in a given directory.
 
     .DESCRIPTION
-        Install all Microsoft Updates of type ".exe", ".msu", or ".msp" in a given directory (recursively search directory). The function will check if the update is already installed and skip it if it is. It handles older redistributables and different types of updates appropriately.
+        Install all Microsoft Updates of type ".msu" in a given directory (recursively searches directory).
 
-    .PARAMETER Directory
+    .PARAMETER LiteralPath
         Directory containing the updates.
 
     .INPUTS
@@ -27,103 +27,65 @@ function Install-ADTMSUpdates
         This function does not return any objects.
 
     .EXAMPLE
-        Install-ADTMSUpdates -Directory "$($adtSession.DirFiles)\MSUpdates"
+        Install-ADTMSUpdates -LiteralPath "$($adtSession.DirFiles)\MSUpdates"
 
         Installs all Microsoft Updates found in the specified directory.
 
     .NOTES
         An active ADT session is NOT required to use this function.
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
         https://psappdeploytoolkit.com/docs/reference/functions/Install-ADTMSUpdates
     #>
 
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param
     (
         [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
-        [System.String]$Directory
+        [ValidateScript({
+                if (!(Test-Path -LiteralPath $_))
+                {
+                    $PSCmdlet.ThrowTerminatingError((New-ADTValidateScriptErrorRecord -ParameterName LiteralPath -ProvidedValue $_ -ExceptionMessage 'The specified directory does not exist.'))
+                }
+                return ![System.String]::IsNullOrWhiteSpace($_)
+            })]
+        [Alias('Directory')]
+        [System.String]$LiteralPath
     )
 
     begin
     {
-        # Announce deprecation to callers.
-        Write-ADTLogEntry -Message "The function [$($MyInvocation.MyCommand.Name)] is deprecated and will be removed in PSAppDeployToolkit 4.2.0. Please raise a case at [https://github.com/PSAppDeployToolkit/PSAppDeployToolkit/issues] if you require this function." -Severity 2
+        # Initialize function.
         Initialize-ADTFunction -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState
-        $kbPattern = [System.Text.RegularExpressions.Regex]::new('(?i)kb\d{6,8}', [System.Text.RegularExpressions.RegexOptions]::Compiled)
+        if (!($updates = if ([System.IO.Directory]::Exists($LiteralPath)) { Get-ChildItem @PSBoundParameters -Filter *.msu -Recurse -ErrorAction Ignore } else { $LiteralPath }))
+        {
+            $PSCmdlet.ThrowTerminatingError((New-ADTValidateScriptErrorRecord -ParameterName LiteralPath -ProvidedValue $_ -ExceptionMessage 'The specified path contains no updates.'))
+        }
     }
 
     process
     {
         # Get all hotfixes and install if required.
-        Write-ADTLogEntry -Message "Recursively installing all Microsoft Updates in directory [$Directory]."
-        foreach ($file in (Get-ChildItem -LiteralPath $Directory -Recurse -Include ('*.exe', '*.msu', '*.msp')))
+        if ($updates -isnot [System.String])
         {
-            try
+            Write-ADTLogEntry -Message "Recursively installing all Microsoft Updates in directory [$LiteralPath]."
+        }
+        else
+        {
+            Write-ADTLogEntry -Message "Installing Microsoft Update [$updates]."
+        }
+        foreach ($update in $updates)
+        {
+            if ($PSCmdlet.ShouldProcess("Microsoft Update [$($update.Name)]", 'Install'))
             {
-                try
-                {
-                    if ($file.Name -match 'redist')
-                    {
-                        # Handle older redistributables (ie, VC++ 2005)
-                        [System.Version]$redistVersion = $file.VersionInfo.ProductVersion
-                        [System.String]$redistDescription = $file.VersionInfo.FileDescription
-                        Write-ADTLogEntry -Message "Installing [$redistDescription $redistVersion]..."
-                        if ($redistDescription -match 'Win32 Cabinet Self-Extractor')
-                        {
-                            Start-ADTProcess -FilePath $file.FullName -ArgumentList '/q' -WindowStyle 'Hidden' -IgnoreExitCodes '*'
-                        }
-                        else
-                        {
-                            Start-ADTProcess -FilePath $file.FullName -ArgumentList '/quiet /norestart' -WindowStyle 'Hidden' -IgnoreExitCodes '*'
-                        }
-                    }
-                    elseif ($kbNumber = $kbPattern.Match($file.Name).ToString())
-                    {
-                        # Check to see whether the KB is already installed
-                        if (Test-ADTMSUpdates -KbNumber $kbNumber)
-                        {
-                            Write-ADTLogEntry -Message "KB Number [$kbNumber] is already installed. Continue..."
-                            continue
-                        }
-                        Write-ADTLogEntry -Message "KB Number [$KBNumber] was not detected and will be installed."
-                        switch ($file.Extension)
-                        {
-                            '.exe'
-                            {
-                                # Installation type for executables (i.e., Microsoft Office Updates).
-                                Start-ADTProcess -FilePath $file.FullName -ArgumentList '/quiet /norestart' -WindowStyle 'Hidden' -IgnoreExitCodes '*'
-                                break
-                            }
-                            '.msu'
-                            {
-                                # Installation type for Windows updates using Windows Update Standalone Installer.
-                                Start-ADTProcess -FilePath "$([System.Environment]::SystemDirectory)\wusa.exe" -ArgumentList "`"$($file.FullName)`" /quiet /norestart" -WindowStyle 'Hidden' -IgnoreExitCodes '*'
-                                break
-                            }
-                            '.msp'
-                            {
-                                # Installation type for Windows Installer Patch
-                                Start-ADTMsiProcess -Action 'Patch' -Path $file.FullName -IgnoreExitCodes '*'
-                                break
-                            }
-                        }
-                    }
-                }
-                catch
-                {
-                    Write-Error -ErrorRecord $_
-                }
-            }
-            catch
-            {
-                Invoke-ADTFunctionErrorHandler -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState -ErrorRecord $_
+                Start-ADTProcess -FilePath $update.FullName -ArgumentList '/quiet /norestart' -WindowStyle 'Hidden'
             }
         }
     }

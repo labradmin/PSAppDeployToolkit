@@ -8,11 +8,13 @@
 			<string id="SUPPORTED_Windows_10_0_RS1_Definition">At least Windows Server 2016, Windows 10 Version 1607</string>
 			<string id="Assets_Category">Assets</string>
 			<string id="Logo_Display">Logo</string>
-			<string id="Logo_Explain">Specify filename of the logo.</string>
-			<string id="LogoDark_Display">Logo (Dark Mode)</string>
-			<string id="LogoDark_Explain">Specify filename of the logo (for dark mode).</string>
+			<string id="Logo_Explain">Specify filename or Base64 string of the logo.</string>
+			<string id="LogoDark_Display">LogoDark</string>
+			<string id="LogoDark_Explain">Specify filename or Base64 string of the logo (for dark mode).</string>
 			<string id="Banner_Display">Banner</string>
-			<string id="Banner_Explain">Specify filename of the banner (Classic-only).</string>
+			<string id="Banner_Explain">Specify filename or Base64 string of the banner (Classic-only).</string>
+			<string id="TaskbarIcon_Display">TaskbarIcon</string>
+			<string id="TaskbarIcon_Explain">Specify optional filename or Base64 string of the banner (Classic-only).</string>
 			<string id="MSI_Category">MSI</string>
 			<string id="InstallParams_Display">InstallParams</string>
 			<string id="InstallParams_Explain">MSI install parameters used in interactive mode.</string>
@@ -41,6 +43,8 @@
 			<string id="LogAppend_Explain">Specify if an existing log file should be appended to.</string>
 			<string id="LogDebugMessage_Display">LogDebugMessage</string>
 			<string id="LogDebugMessage_Explain">Specify if debug messages such as bound parameters passed to a function should be logged.</string>
+			<string id="LogMaxHierarchy_Display">LogMaxHierarchy</string>
+			<string id="LogMaxHierarchy_Explain">Specify maximum number of previous log files to retain.</string>
 			<string id="LogMaxHistory_Display">LogMaxHistory</string>
 			<string id="LogMaxHistory_Explain">Specify maximum number of previous log files to retain.</string>
 			<string id="LogMaxSize_Display">LogMaxSize</string>
@@ -140,6 +144,11 @@ This only applies if "LogWriteToHost" is true, and the script is being ran in a 
 					<label>Banner</label>
 				</textBox>
 			</presentation>
+			<presentation id="TaskbarIcon">
+				<textBox refId="TaskbarIcon">
+					<label>TaskbarIcon</label>
+				</textBox>
+			</presentation>
 			<presentation id="InstallParams">
 				<textBox refId="InstallParams">
 					<label>InstallParams</label>
@@ -185,6 +194,9 @@ This only applies if "LogWriteToHost" is true, and the script is being ran in a 
 			</presentation>
 			<presentation id="FileCopyMode">
 				<dropdownList refId="FileCopyMode" noSort="true" defaultItem="0">FileCopyMode</dropdownList>
+			</presentation>
+			<presentation id="LogMaxHierarchy">
+				<decimalTextBox refId="LogMaxHierarchy">LogMaxHierarchy</decimalTextBox>
 			</presentation>
 			<presentation id="LogMaxHistory">
 				<decimalTextBox refId="LogMaxHistory">LogMaxHistory</decimalTextBox>

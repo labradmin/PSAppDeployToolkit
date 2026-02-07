@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Collections;
 using System.Globalization;
-using PSADT.Module;
 using PSADT.UserInterface.Dialogs;
+using PSAppDeployToolkit.SessionManagement;
 using Newtonsoft.Json;
 
 namespace PSADT.UserInterface.DialogOptions
@@ -15,83 +15,33 @@ namespace PSADT.UserInterface.DialogOptions
         /// <summary>
         /// Initializes a new instance of the <see cref="CloseAppsDialogOptions"/> class.
         /// </summary>
+        /// <param name="deploymentType"></param>
         /// <param name="options"></param>
-        public CloseAppsDialogOptions(DeploymentType deploymentType, Hashtable options) : base(options)
+        public CloseAppsDialogOptions(DeploymentType deploymentType, Hashtable options) : this(
+            (options ?? throw new ArgumentNullException(nameof(options)))["AppTitle"] is string appTitle ? appTitle : string.Empty,
+            options["Subtitle"] is string subtitle ? subtitle : string.Empty,
+            options["AppIconImage"] is string appIconImage ? appIconImage : string.Empty,
+            options["AppIconDarkImage"] is string appIconDarkImage ? appIconDarkImage : string.Empty,
+            options["AppBannerImage"] is string appBannerImage ? appBannerImage : string.Empty,
+            options["AppTaskbarIconImage"] is string appTaskbarIconImage ? appTaskbarIconImage : null,
+            options["DialogTopMost"] is bool dialogTopMost && dialogTopMost,
+            options["Language"] is CultureInfo language ? language : null!,
+            options["FluentAccentColor"] is int fluentAccentColor ? fluentAccentColor : null,
+            options["DialogPosition"] is DialogPosition dialogPosition ? dialogPosition : null,
+            options["DialogAllowMove"] is bool dialogAllowMove ? dialogAllowMove : null,
+            options["DialogExpiryDuration"] is TimeSpan dialogExpiryDuration ? dialogExpiryDuration : null,
+            options["DialogPersistInterval"] is TimeSpan dialogPersistInterval ? dialogPersistInterval : null,
+            options["Strings"] is Hashtable strings && strings.Count > 0 ? new CloseAppsDialogStrings(strings, deploymentType) : null!,
+            options["DeferralsRemaining"] is uint deferralsRemaining ? deferralsRemaining : null,
+            options["DeferralDeadline"] is DateTime deferralDeadline ? deferralDeadline : null,
+            options["UnlimitedDeferrals"] is bool unlimitedDeferrals && unlimitedDeferrals,
+            options["ContinueOnProcessClosure"] is bool continueOnProcessClosure && continueOnProcessClosure,
+            options["CountdownDuration"] is TimeSpan countdownDuration ? countdownDuration : null,
+            options["ForcedCountdown"] is bool forcedCountdown && forcedCountdown,
+            options["HideCloseButton"] is bool hideCloseButton && hideCloseButton,
+            options["DialogAllowMinimize"] is bool dialogAllowMinimize && dialogAllowMinimize,
+            options["CustomMessageText"] is string customMessageText && !string.IsNullOrWhiteSpace(customMessageText) ? customMessageText : null)
         {
-            // Nothing here is allowed to be null.
-            if (options["Strings"] is not Hashtable strings || strings.Count == 0)
-            {
-                throw new ArgumentNullException("Strings table value is null or invalid.", (Exception?)null);
-            }
-
-            // Test and set optional values.
-            if (options.ContainsKey("DeferralsRemaining"))
-            {
-                if (options["DeferralsRemaining"] is not uint deferralsRemaining)
-                {
-                    throw new ArgumentOutOfRangeException("DeferralsRemaining value is not valid.", (Exception?)null);
-                }
-                DeferralsRemaining = deferralsRemaining;
-            }
-            if (options.ContainsKey("DeferralDeadline"))
-            {
-                if (options["DeferralDeadline"] is not DateTime deferralDeadline)
-                {
-                    throw new ArgumentOutOfRangeException("DeferralDeadline value is not valid.", (Exception?)null);
-                }
-                DeferralDeadline = deferralDeadline;
-            }
-            if (options.ContainsKey("UnlimitedDeferrals"))
-            {
-                if (options["UnlimitedDeferrals"] is not bool unlimitedDeferrals)
-                {
-                    throw new ArgumentOutOfRangeException("UnlimitedDeferrals value is not valid.", (Exception?)null);
-                }
-                UnlimitedDeferrals = unlimitedDeferrals;
-            }
-            if (options.ContainsKey("ContinueOnProcessClosure"))
-            {
-                if (options["ContinueOnProcessClosure"] is not bool continueOnProcessClosure)
-                {
-                    throw new ArgumentOutOfRangeException("ContinueOnProcessClosure value is not valid.", (Exception?)null);
-                }
-                ContinueOnProcessClosure = continueOnProcessClosure;
-            }
-            if (options.ContainsKey("CountdownDuration"))
-            {
-                if (options["CountdownDuration"] is not TimeSpan countdownDuration)
-                {
-                    throw new ArgumentOutOfRangeException("CountdownDuration value is not valid.", (Exception?)null);
-                }
-                CountdownDuration = countdownDuration;
-            }
-            if (options.ContainsKey("ForcedCountdown"))
-            {
-                if (options["ForcedCountdown"] is not bool forcedCountdown)
-                {
-                    throw new ArgumentOutOfRangeException("ForcedCountdown value is not valid.", (Exception?)null);
-                }
-                ForcedCountdown = forcedCountdown;
-            }
-            if (options.ContainsKey("HideCloseButton"))
-            {
-                if (options["HideCloseButton"] is not bool hideCloseButton)
-                {
-                    throw new ArgumentOutOfRangeException("HideCloseButton value is not valid.", (Exception?)null);
-                }
-                HideCloseButton = hideCloseButton;
-            }
-            if (options.ContainsKey("CustomMessageText"))
-            {
-                if (options["CustomMessageText"] is not string customMessageText || string.IsNullOrWhiteSpace(customMessageText))
-                {
-                    throw new ArgumentOutOfRangeException("CustomMessageText value is not valid.", (Exception?)null);
-                }
-                CustomMessageText = customMessageText;
-            }
-
-            // The hashtable was correctly defined, assign the remaining values.
-            Strings = new(strings, deploymentType);
         }
 
         /// <summary>
@@ -106,6 +56,8 @@ namespace PSADT.UserInterface.DialogOptions
         /// <param name="appIconImage">The path or URI to the application's icon image used in the dialog.</param>
         /// <param name="appIconDarkImage">The path or URI to the application's dark mode icon image used in the dialog.</param>
         /// <param name="appBannerImage">The path or URI to the banner image displayed in the dialog.</param>
+        /// <param name="appTaskbarIconImage">The path or URI to the application's tray icon image used in the dialog. If <see langword="null"/>,
+        /// the default tray icon is used.</param>
         /// <param name="dialogTopMost">A value indicating whether the dialog should always appear on top of other windows.</param>
         /// <param name="language">The culture information used for localizing the dialog.</param>
         /// <param name="fluentAccentColor">The accent color used for Fluent design elements in the dialog. If <see langword="null"/>, the default
@@ -125,12 +77,12 @@ namespace PSADT.UserInterface.DialogOptions
         /// displayed.</param>
         /// <param name="forcedCountdown">A value indicating whether the countdown timer is mandatory and cannot be skipped.</param>
         /// <param name="hideCloseButton">A value indicating whether the close button is hidden in the dialog.</param>
+        /// <param name="dialogAllowMinimize">A value indicating whether the dialog can be minimized by the user.</param>
         /// <param name="customMessageText">Custom text displayed in the dialog. If <see langword="null"/>, no custom message is shown.</param>
         [JsonConstructor]
-        private CloseAppsDialogOptions(string appTitle, string subtitle, string appIconImage, string appIconDarkImage, string appBannerImage, bool dialogTopMost, CultureInfo language, int? fluentAccentColor, DialogPosition? dialogPosition, bool? dialogAllowMove, TimeSpan? dialogExpiryDuration, TimeSpan? dialogPersistInterval, CloseAppsDialogStrings strings, uint? deferralsRemaining, DateTime? deferralDeadline, bool unlimitedDeferrals, bool continueOnProcessClosure, TimeSpan? countdownDuration, bool forcedCountdown, bool hideCloseButton, string? customMessageText) : base(appTitle, subtitle, appIconImage, appIconDarkImage, appBannerImage, dialogTopMost, language, fluentAccentColor, dialogPosition, dialogAllowMove, dialogExpiryDuration, dialogPersistInterval)
+        private CloseAppsDialogOptions(string appTitle, string subtitle, string appIconImage, string appIconDarkImage, string appBannerImage, string? appTaskbarIconImage, bool dialogTopMost, CultureInfo language, int? fluentAccentColor, DialogPosition? dialogPosition, bool? dialogAllowMove, TimeSpan? dialogExpiryDuration, TimeSpan? dialogPersistInterval, CloseAppsDialogStrings strings, uint? deferralsRemaining, DateTime? deferralDeadline, bool unlimitedDeferrals, bool continueOnProcessClosure, TimeSpan? countdownDuration, bool forcedCountdown, bool hideCloseButton, bool dialogAllowMinimize, string? customMessageText) : base(appTitle, subtitle, appIconImage, appIconDarkImage, appBannerImage, appTaskbarIconImage, dialogTopMost, language, fluentAccentColor, dialogPosition, dialogAllowMove, dialogExpiryDuration, dialogPersistInterval)
         {
-            // Assign the values.
-            Strings = strings;
+            Strings = strings ?? throw new ArgumentNullException(nameof(strings), "Strings value is null or invalid.");
             DeferralsRemaining = deferralsRemaining;
             DeferralDeadline = deferralDeadline;
             UnlimitedDeferrals = unlimitedDeferrals;
@@ -138,6 +90,7 @@ namespace PSADT.UserInterface.DialogOptions
             CountdownDuration = countdownDuration;
             ForcedCountdown = forcedCountdown;
             HideCloseButton = hideCloseButton;
+            DialogAllowMinimize = dialogAllowMinimize;
             CustomMessageText = customMessageText;
         }
 
@@ -145,59 +98,66 @@ namespace PSADT.UserInterface.DialogOptions
         /// The strings used for the CloseAppsDialog.
         /// </summary>
         [JsonProperty]
-        public readonly CloseAppsDialogStrings Strings;
+        public CloseAppsDialogStrings Strings { get; }
 
         /// <summary>
         /// The number of deferrals remaining for the user.
         /// </summary>
         [JsonProperty]
-        public readonly uint? DeferralsRemaining;
+        public uint? DeferralsRemaining { get; }
 
         /// <summary>
         /// The deadline for deferrals.
         /// </summary>
         [JsonProperty]
-        public readonly DateTime? DeferralDeadline;
+        public DateTime? DeferralDeadline { get; }
 
         /// <summary>
         /// Indicates whether the system allows an unlimited number of deferrals.
         /// </summary>
         [JsonProperty]
-        public readonly bool UnlimitedDeferrals;
+        public bool UnlimitedDeferrals { get; }
 
         /// <summary>
         /// Indicates whether the continue button should be implied when all processes have closed.
         /// </summary>
         [JsonProperty]
-        public readonly bool ContinueOnProcessClosure;
+        public bool ContinueOnProcessClosure { get; }
 
         /// <summary>
         /// The duration of the countdown before the dialog automatically closes.
         /// </summary>
         [JsonProperty]
-        public readonly TimeSpan? CountdownDuration;
+        public TimeSpan? CountdownDuration { get; }
 
         /// <summary>
         /// Specifies whether the countdown is "forced" or not (affects countdown decisions).
         /// </summary>
         [JsonProperty]
-        public readonly bool ForcedCountdown;
+        public bool ForcedCountdown { get; }
 
         /// <summary>
         /// Indicates whether the close button should be hidden.
         /// </summary>
         [JsonProperty]
-        public readonly bool HideCloseButton;
+        public bool HideCloseButton { get; }
+
+        /// <summary>
+        /// Indicates whether the dialog allows minimizing.
+        /// </summary>
+        [JsonProperty]
+        public bool DialogAllowMinimize { get; }
 
         /// <summary>
         /// Represents a custom message text that can be optionally provided.
         /// </summary>
         [JsonProperty]
-        public readonly string? CustomMessageText;
+        public string? CustomMessageText { get; }
 
         /// <summary>
         /// The strings used for the CloseAppsDialog.
         /// </summary>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1034:Nested types should not be visible", Justification = "The nesting in this case is alright.")]
         public sealed record CloseAppsDialogStrings
         {
             /// <summary>
@@ -206,35 +166,23 @@ namespace PSADT.UserInterface.DialogOptions
             /// <param name="strings"></param>
             /// <param name="deploymentType"></param>
             /// <exception cref="ArgumentNullException"></exception>
-            internal CloseAppsDialogStrings(Hashtable strings, DeploymentType deploymentType)
+            internal CloseAppsDialogStrings(Hashtable strings, DeploymentType deploymentType) : this(
+                strings["Classic"] is Hashtable classicStrings ? new CloseAppsDialogClassicStrings(classicStrings, deploymentType) : null!,
+                strings["Fluent"] is Hashtable fluentStrings ? new CloseAppsDialogFluentStrings(fluentStrings, deploymentType) : null!)
             {
-                // Nothing here is allowed to be null.
-                if (strings["Classic"] is not Hashtable classicStrings)
-                {
-                    throw new ArgumentNullException("Classic string table value is null or invalid.", (Exception?)null);
-                }
-                if (strings["Fluent"] is not Hashtable fluentStrings)
-                {
-                    throw new ArgumentNullException("Fluent string table value is null or invalid.", (Exception?)null);
-                }
-
-                // The hashtable was correctly defined, assign the remaining values.
-                Classic = new(classicStrings, deploymentType);
-                Fluent = new(fluentStrings, deploymentType);
             }
 
             /// <summary>
             /// Initializes a new instance of the <see cref="CloseAppsDialogStrings"/> class with the specified classic
             /// and fluent dialog strings.
             /// </summary>
-            /// <param name="classicStrings">The strings used for the classic dialog style. Cannot be <see langword="null"/>.</param>
-            /// <param name="fluentStrings">The strings used for the fluent dialog style. Cannot be <see langword="null"/>.</param>
-            /// <exception cref="ArgumentNullException">Thrown if <paramref name="classicStrings"/> or <paramref name="fluentStrings"/> is <see
+            /// <param name="classic">The strings used for the classic dialog style. Cannot be <see langword="null"/>.</param>
+            /// <param name="fluent">The strings used for the fluent dialog style. Cannot be <see langword="null"/>.</param>
+            /// <exception cref="ArgumentNullException">Thrown if <paramref name="classic"/> or <paramref name="fluent"/> is <see
             /// langword="null"/>.</exception>
             [JsonConstructor]
             private CloseAppsDialogStrings(CloseAppsDialogClassicStrings classic, CloseAppsDialogFluentStrings fluent)
             {
-                // Assign the values.
                 Classic = classic ?? throw new ArgumentNullException(nameof(classic), "Classic strings cannot be null.");
                 Fluent = fluent ?? throw new ArgumentNullException(nameof(fluent), "Fluent strings cannot be null.");
             }
@@ -243,13 +191,13 @@ namespace PSADT.UserInterface.DialogOptions
             /// The strings used for the classic CloseAppsDialog.
             /// </summary>
             [JsonProperty]
-            public readonly CloseAppsDialogClassicStrings Classic;
+            public CloseAppsDialogClassicStrings Classic { get; }
 
             /// <summary>
             /// The strings used for the Fluent CloseAppsDialog.
             /// </summary>
             [JsonProperty]
-            public readonly CloseAppsDialogFluentStrings Fluent;
+            public CloseAppsDialogFluentStrings Fluent { get; }
 
             /// <summary>
             /// The strings used for the classic CloseAppsDialog.
@@ -262,71 +210,20 @@ namespace PSADT.UserInterface.DialogOptions
                 /// <param name="strings"></param>
                 /// <param name="deploymentType"></param>
                 /// <exception cref="ArgumentNullException"></exception>
-                internal CloseAppsDialogClassicStrings(Hashtable strings, DeploymentType deploymentType)
+                internal CloseAppsDialogClassicStrings(Hashtable strings, DeploymentType deploymentType) : this(
+                    strings["WelcomeMessage"] is Hashtable welcomeMessageTable && welcomeMessageTable[deploymentType.ToString()] is string welcomeMessage ? welcomeMessage : string.Empty,
+                    strings["CloseAppsMessage"] is Hashtable closeAppsMessageTable && closeAppsMessageTable[deploymentType.ToString()] is string closeAppsMessage ? closeAppsMessage : string.Empty,
+                    strings["ExpiryMessage"] is Hashtable expiryMessageTable && expiryMessageTable[deploymentType.ToString()] is string expiryMessage ? expiryMessage : string.Empty,
+                    strings["DeferralsRemaining"] is string deferralsRemaining ? deferralsRemaining : string.Empty,
+                    strings["DeferralDeadline"] is string deferralDeadline ? deferralDeadline : string.Empty,
+                    strings["ExpiryWarning"] is string expiryWarning ? expiryWarning : string.Empty,
+                    strings["CountdownDefer"] is Hashtable countdownDeferTable && countdownDeferTable[deploymentType.ToString()] is string countdownDefer ? countdownDefer : string.Empty,
+                    strings["CountdownClose"] is Hashtable countdownCloseTable && countdownCloseTable[deploymentType.ToString()] is string countdownClose ? countdownClose : string.Empty,
+                    strings["ButtonClose"] is string buttonClose ? buttonClose : string.Empty,
+                    strings["ButtonDefer"] is string buttonDefer ? buttonDefer : string.Empty,
+                    strings["ButtonContinue"] is string buttonContinue ? buttonContinue : string.Empty,
+                    strings["ButtonContinueTooltip"] is string buttonContinueTooltip ? buttonContinueTooltip : string.Empty)
                 {
-                    // Nothing here is allowed to be null.
-                    if (strings["WelcomeMessage"] is not Hashtable welcomeMessageTable || welcomeMessageTable[deploymentType.ToString()] is not string welcomeMessage || string.IsNullOrWhiteSpace(welcomeMessage))
-                    {
-                        throw new ArgumentNullException("WelcomeMessage value is null or invalid.", (Exception?)null);
-                    }
-                    if (strings["CloseAppsMessage"] is not Hashtable closeAppsMessageTable || closeAppsMessageTable[deploymentType.ToString()] is not string closeAppsMessage || string.IsNullOrWhiteSpace(closeAppsMessage))
-                    {
-                        throw new ArgumentNullException("CloseAppsMessage value is null or invalid.", (Exception?)null);
-                    }
-                    if (strings["ExpiryMessage"] is not Hashtable expiryMessageTable || expiryMessageTable[deploymentType.ToString()] is not string expiryMessage || string.IsNullOrWhiteSpace(expiryMessage))
-                    {
-                        throw new ArgumentNullException("ExpiryMessage value is null or invalid.", (Exception?)null);
-                    }
-                    if (strings["DeferralsRemaining"] is not string deferralsRemaining || string.IsNullOrWhiteSpace(deferralsRemaining))
-                    {
-                        throw new ArgumentNullException("DeferralsRemaining value is null or invalid.", (Exception?)null);
-                    }
-                    if (strings["DeferralDeadline"] is not string deferralDeadline || string.IsNullOrWhiteSpace(deferralDeadline))
-                    {
-                        throw new ArgumentNullException("DeferralDeadline value is null or invalid.", (Exception?)null);
-                    }
-                    if (strings["ExpiryWarning"] is not string expiryWarning || string.IsNullOrWhiteSpace(expiryWarning))
-                    {
-                        throw new ArgumentNullException("ExpiryWarning value is null or invalid.", (Exception?)null);
-                    }
-                    if (strings["CountdownDefer"] is not Hashtable countdownDeferTable || countdownDeferTable[deploymentType.ToString()] is not string countdownDefer || string.IsNullOrWhiteSpace(countdownDefer))
-                    {
-                        throw new ArgumentNullException("CountdownDefer value is null or invalid.", (Exception?)null);
-                    }
-                    if (strings["CountdownClose"] is not Hashtable countdownCloseTable || countdownCloseTable[deploymentType.ToString()] is not string countdownClose || string.IsNullOrWhiteSpace(countdownClose))
-                    {
-                        throw new ArgumentNullException("CountdownClose value is null or invalid.", (Exception?)null);
-                    }
-                    if (strings["ButtonClose"] is not string buttonClose || string.IsNullOrWhiteSpace(buttonClose))
-                    {
-                        throw new ArgumentNullException("ButtonClose value is null or invalid.", (Exception?)null);
-                    }
-                    if (strings["ButtonDefer"] is not string buttonDefer || string.IsNullOrWhiteSpace(buttonDefer))
-                    {
-                        throw new ArgumentNullException("ButtonDefer value is null or invalid.", (Exception?)null);
-                    }
-                    if (strings["ButtonContinue"] is not string buttonContinue || string.IsNullOrWhiteSpace(buttonContinue))
-                    {
-                        throw new ArgumentNullException("ButtonContinue value is null or invalid.", (Exception?)null);
-                    }
-                    if (strings["ButtonContinueTooltip"] is not string buttonContinueTooltip || string.IsNullOrWhiteSpace(buttonContinueTooltip))
-                    {
-                        throw new ArgumentNullException("ButtonContinueTooltip value is null or invalid.", (Exception?)null);
-                    }
-
-                    // The hashtable was correctly defined, assign the remaining values.
-                    WelcomeMessage = welcomeMessage;
-                    CloseAppsMessage = closeAppsMessage;
-                    ExpiryMessage = expiryMessage;
-                    DeferralsRemaining = deferralsRemaining;
-                    DeferralDeadline = deferralDeadline;
-                    ExpiryWarning = expiryWarning;
-                    CountdownDefer = countdownDefer;
-                    CountdownClose = countdownClose;
-                    ButtonClose = buttonClose;
-                    ButtonDefer = buttonDefer;
-                    ButtonContinue = buttonContinue;
-                    ButtonContinueTooltip = buttonContinueTooltip;
                 }
 
                 /// <summary>
@@ -351,7 +248,55 @@ namespace PSADT.UserInterface.DialogOptions
                 [JsonConstructor]
                 private CloseAppsDialogClassicStrings(string welcomeMessage, string closeAppsMessage, string expiryMessage, string deferralsRemaining, string deferralDeadline, string expiryWarning, string countdownDefer, string countdownClose, string buttonClose, string buttonDefer, string buttonContinue, string buttonContinueTooltip)
                 {
-                    // Assign the values.
+                    if (string.IsNullOrWhiteSpace(welcomeMessage))
+                    {
+                        throw new ArgumentNullException(nameof(welcomeMessage), "WelcomeMessage value is null or invalid.");
+                    }
+                    if (string.IsNullOrWhiteSpace(closeAppsMessage))
+                    {
+                        throw new ArgumentNullException(nameof(closeAppsMessage), "CloseAppsMessage value is null or invalid.");
+                    }
+                    if (string.IsNullOrWhiteSpace(expiryMessage))
+                    {
+                        throw new ArgumentNullException(nameof(expiryMessage), "ExpiryMessage value is null or invalid.");
+                    }
+                    if (string.IsNullOrWhiteSpace(deferralsRemaining))
+                    {
+                        throw new ArgumentNullException(nameof(deferralsRemaining), "DeferralsRemaining value is null or invalid.");
+                    }
+                    if (string.IsNullOrWhiteSpace(deferralDeadline))
+                    {
+                        throw new ArgumentNullException(nameof(deferralDeadline), "DeferralDeadline value is null or invalid.");
+                    }
+                    if (string.IsNullOrWhiteSpace(expiryWarning))
+                    {
+                        throw new ArgumentNullException(nameof(expiryWarning), "ExpiryWarning value is null or invalid.");
+                    }
+                    if (string.IsNullOrWhiteSpace(countdownDefer))
+                    {
+                        throw new ArgumentNullException(nameof(countdownDefer), "CountdownDefer value is null or invalid.");
+                    }
+                    if (string.IsNullOrWhiteSpace(countdownClose))
+                    {
+                        throw new ArgumentNullException(nameof(countdownClose), "CountdownClose value is null or invalid.");
+                    }
+                    if (string.IsNullOrWhiteSpace(buttonClose))
+                    {
+                        throw new ArgumentNullException(nameof(buttonClose), "ButtonClose value is null or invalid.");
+                    }
+                    if (string.IsNullOrWhiteSpace(buttonDefer))
+                    {
+                        throw new ArgumentNullException(nameof(buttonDefer), "ButtonDefer value is null or invalid.");
+                    }
+                    if (string.IsNullOrWhiteSpace(buttonContinue))
+                    {
+                        throw new ArgumentNullException(nameof(buttonContinue), "ButtonContinue value is null or invalid.");
+                    }
+                    if (string.IsNullOrWhiteSpace(buttonContinueTooltip))
+                    {
+                        throw new ArgumentNullException(nameof(buttonContinueTooltip), "ButtonContinueTooltip value is null or invalid.");
+                    }
+
                     WelcomeMessage = welcomeMessage;
                     CloseAppsMessage = closeAppsMessage;
                     ExpiryMessage = expiryMessage;
@@ -370,73 +315,73 @@ namespace PSADT.UserInterface.DialogOptions
                 /// Text displayed when only the deferral dialog is to be displayed and there are no applications to close
                 /// </summary>
                 [JsonProperty]
-                public readonly string WelcomeMessage;
+                public string WelcomeMessage { get; }
 
                 /// <summary>
                 /// Text displayed when prompting to close running programs.
                 /// </summary>
                 [JsonProperty]
-                public readonly string CloseAppsMessage;
+                public string CloseAppsMessage { get; }
 
                 /// <summary>
                 /// Text displayed when a deferral option is available.
                 /// </summary>
                 [JsonProperty]
-                public readonly string ExpiryMessage;
+                public string ExpiryMessage { get; }
 
                 /// <summary>
                 /// Text displayed when there are a specific number of deferrals remaining.
                 /// </summary>
                 [JsonProperty]
-                public readonly string DeferralsRemaining;
+                public string DeferralsRemaining { get; }
 
                 /// <summary>
                 /// Text displayed when there is a specific deferral deadline.
                 /// </summary>
                 [JsonProperty]
-                public readonly string DeferralDeadline;
+                public string DeferralDeadline { get; }
 
                 /// <summary>
                 /// Text displayed after the deferral options.
                 /// </summary>
                 [JsonProperty]
-                public readonly string ExpiryWarning;
+                public string ExpiryWarning { get; }
 
                 /// <summary>
                 /// The countdown message displayed at the Welcome Screen to indicate when the deployment will continue if no response from user.
                 /// </summary>
                 [JsonProperty]
-                public readonly string CountdownDefer;
+                public string CountdownDefer { get; }
 
                 /// <summary>
                 /// Text displayed when counting down to automatically closing applications.
                 /// </summary>
                 [JsonProperty]
-                public readonly string CountdownClose;
+                public string CountdownClose { get; }
 
                 /// <summary>
                 /// Text displayed on the close button when prompting to close running programs.
                 /// </summary>
                 [JsonProperty]
-                public readonly string ButtonClose;
+                public string ButtonClose { get; }
 
                 /// <summary>
                 /// Text displayed on the defer button when prompting to close running programs
                 /// </summary>
                 [JsonProperty]
-                public readonly string ButtonDefer;
+                public string ButtonDefer { get; }
 
                 /// <summary>
                 /// Text displayed on the continue button when prompting to close running programs.
                 /// </summary>
                 [JsonProperty]
-                public readonly string ButtonContinue;
+                public string ButtonContinue { get; }
 
                 /// <summary>
                 /// Tooltip text displayed on the continue button when prompting to close running programs.
                 /// </summary>
                 [JsonProperty]
-                public readonly string ButtonContinueTooltip;
+                public string ButtonContinueTooltip { get; }
             }
 
             /// <summary>
@@ -450,51 +395,16 @@ namespace PSADT.UserInterface.DialogOptions
                 /// <param name="strings"></param>
                 /// <param name="deploymentType"></param>
                 /// <exception cref="ArgumentNullException"></exception>
-                internal CloseAppsDialogFluentStrings(Hashtable strings, DeploymentType deploymentType)
+                internal CloseAppsDialogFluentStrings(Hashtable strings, DeploymentType deploymentType) : this(
+                    strings["DialogMessage"] is Hashtable dialogMessageTable && dialogMessageTable[deploymentType.ToString()] is string dialogMessage ? dialogMessage : string.Empty,
+                    strings["DialogMessageNoProcesses"] is Hashtable dialogMessageNoProcessesTable && dialogMessageNoProcessesTable[deploymentType.ToString()] is string dialogMessageNoProcesses ? dialogMessageNoProcesses : string.Empty,
+                    strings["AutomaticStartCountdown"] is string automaticStartCountdown ? automaticStartCountdown : string.Empty,
+                    strings["DeferralsRemaining"] is string deferralsRemaining ? deferralsRemaining : string.Empty,
+                    strings["DeferralDeadline"] is string deferralDeadline ? deferralDeadline : string.Empty,
+                    strings["ButtonLeftText"] is Hashtable buttonLeftTextTable && buttonLeftTextTable[deploymentType.ToString()] is string buttonLeftText ? buttonLeftText : string.Empty,
+                    strings["ButtonRightText"] is string buttonRightText ? buttonRightText : string.Empty,
+                    strings["ButtonLeftNoProcessesText"] is Hashtable buttonLeftNoProcessesTextTable && buttonLeftNoProcessesTextTable[deploymentType.ToString()] is string buttonLeftNoProcessesText ? buttonLeftNoProcessesText : string.Empty)
                 {
-                    // Nothing here is allowed to be null.
-                    if (strings["DialogMessage"] is not Hashtable dialogMessageTable || dialogMessageTable[deploymentType.ToString()] is not string dialogMessage || string.IsNullOrWhiteSpace(dialogMessage))
-                    {
-                        throw new ArgumentNullException("DialogMessage value is null or invalid.", (Exception?)null);
-                    }
-                    if (strings["DialogMessageNoProcesses"] is not Hashtable dialogMessageNoProcessesTable || dialogMessageNoProcessesTable[deploymentType.ToString()] is not string dialogMessageNoProcesses || string.IsNullOrWhiteSpace(dialogMessageNoProcesses))
-                    {
-                        throw new ArgumentNullException("DialogMessageNoProcesses value is null or invalid.", (Exception?)null);
-                    }
-                    if (strings["AutomaticStartCountdown"] is not string automaticStartCountdown || string.IsNullOrWhiteSpace(automaticStartCountdown))
-                    {
-                        throw new ArgumentNullException("AutomaticStartCountdown value is null or invalid.", (Exception?)null);
-                    }
-                    if (strings["DeferralsRemaining"] is not string deferralsRemaining || string.IsNullOrWhiteSpace(deferralsRemaining))
-                    {
-                        throw new ArgumentNullException("DeferralsRemaining value is null or invalid.", (Exception?)null);
-                    }
-                    if (strings["DeferralDeadline"] is not string deferralDeadline || string.IsNullOrWhiteSpace(deferralDeadline))
-                    {
-                        throw new ArgumentNullException("DeferralDeadline value is null or invalid.", (Exception?)null);
-                    }
-                    if (strings["ButtonLeftText"] is not Hashtable buttonLeftTextTable || buttonLeftTextTable[deploymentType.ToString()] is not string buttonLeftText || string.IsNullOrWhiteSpace(buttonLeftText))
-                    {
-                        throw new ArgumentNullException("ButtonLeftText value is null or invalid.", (Exception?)null);
-                    }
-                    if (strings["ButtonRightText"] is not string buttonRightText || string.IsNullOrWhiteSpace(buttonRightText))
-                    {
-                        throw new ArgumentNullException("ButtonRightText value is null or invalid.", (Exception?)null);
-                    }
-                    if (strings["ButtonLeftNoProcessesText"] is not Hashtable buttonLeftNoProcessesTextTable || buttonLeftNoProcessesTextTable[deploymentType.ToString()] is not string buttonLeftNoProcessesText || string.IsNullOrWhiteSpace(buttonLeftNoProcessesText))
-                    {
-                        throw new ArgumentNullException("ButtonLeftNoProcessesText value is null or invalid.", (Exception?)null);
-                    }
-
-                    // The hashtable was correctly defined, assign the remaining values.
-                    DialogMessage = dialogMessage;
-                    DialogMessageNoProcesses = dialogMessageNoProcesses;
-                    AutomaticStartCountdown = automaticStartCountdown;
-                    DeferralsRemaining = deferralsRemaining;
-                    DeferralDeadline = deferralDeadline;
-                    ButtonLeftText = buttonLeftText;
-                    ButtonRightText = buttonRightText;
-                    ButtonLeftTextNoProcesses = buttonLeftNoProcessesText;
                 }
 
                 /// <summary>
@@ -511,11 +421,43 @@ namespace PSADT.UserInterface.DialogOptions
                 /// <param name="deferralDeadline">The text representing the deadline for deferrals.</param>
                 /// <param name="buttonLeftText">The text displayed on the left button when processes are detected.</param>
                 /// <param name="buttonRightText">The text displayed on the right button.</param>
-                /// <param name="buttonLeftNoProcessesText">The text displayed on the left button when no processes are detected.</param>
+                /// <param name="buttonLeftTextNoProcesses">The text displayed on the left button when no processes are detected.</param>
                 [JsonConstructor]
-                private CloseAppsDialogFluentStrings(string dialogMessage, string dialogMessageNoProcesses, string automaticStartCountdown, string deferralsRemaining, string deferralDeadline, string buttonLeftText, string buttonRightText, string buttonLeftNoProcessesText)
+                private CloseAppsDialogFluentStrings(string dialogMessage, string dialogMessageNoProcesses, string automaticStartCountdown, string deferralsRemaining, string deferralDeadline, string buttonLeftText, string buttonRightText, string buttonLeftTextNoProcesses)
                 {
-                    // Assign the values.
+                    if (string.IsNullOrWhiteSpace(dialogMessage))
+                    {
+                        throw new ArgumentNullException(nameof(dialogMessage), "DialogMessage value is null or invalid.");
+                    }
+                    if (string.IsNullOrWhiteSpace(dialogMessageNoProcesses))
+                    {
+                        throw new ArgumentNullException(nameof(dialogMessageNoProcesses), "DialogMessageNoProcesses value is null or invalid.");
+                    }
+                    if (string.IsNullOrWhiteSpace(automaticStartCountdown))
+                    {
+                        throw new ArgumentNullException(nameof(automaticStartCountdown), "AutomaticStartCountdown value is null or invalid.");
+                    }
+                    if (string.IsNullOrWhiteSpace(deferralsRemaining))
+                    {
+                        throw new ArgumentNullException(nameof(deferralsRemaining), "DeferralsRemaining value is null or invalid.");
+                    }
+                    if (string.IsNullOrWhiteSpace(deferralDeadline))
+                    {
+                        throw new ArgumentNullException(nameof(deferralDeadline), "DeferralDeadline value is null or invalid.");
+                    }
+                    if (string.IsNullOrWhiteSpace(buttonLeftText))
+                    {
+                        throw new ArgumentNullException(nameof(buttonLeftText), "ButtonLeftText value is null or invalid.");
+                    }
+                    if (string.IsNullOrWhiteSpace(buttonRightText))
+                    {
+                        throw new ArgumentNullException(nameof(buttonRightText), "ButtonRightText value is null or invalid.");
+                    }
+                    if (string.IsNullOrWhiteSpace(buttonLeftTextNoProcesses))
+                    {
+                        throw new ArgumentNullException(nameof(buttonLeftTextNoProcesses), "ButtonLeftNoProcessesText value is null or invalid.");
+                    }
+
                     DialogMessage = dialogMessage;
                     DialogMessageNoProcesses = dialogMessageNoProcesses;
                     AutomaticStartCountdown = automaticStartCountdown;
@@ -523,56 +465,56 @@ namespace PSADT.UserInterface.DialogOptions
                     DeferralDeadline = deferralDeadline;
                     ButtonLeftText = buttonLeftText;
                     ButtonRightText = buttonRightText;
-                    ButtonLeftTextNoProcesses = buttonLeftNoProcessesText;
+                    ButtonLeftTextNoProcesses = buttonLeftTextNoProcesses;
                 }
 
                 /// <summary>
                 /// This is a message to prompt users to save their work.
                 /// </summary>
                 [JsonProperty]
-                public readonly string DialogMessage;
+                public string DialogMessage { get; }
 
                 /// <summary>
                 /// This is a message to when there are no running processes available.
                 /// </summary>
                 [JsonProperty]
-                public readonly string DialogMessageNoProcesses;
+                public string DialogMessageNoProcesses { get; }
 
                 /// <summary>
                 /// A string to describe the automatic start countdown.
                 /// </summary>
                 [JsonProperty]
-                public readonly string AutomaticStartCountdown;
+                public string AutomaticStartCountdown { get; }
 
                 /// <summary>
                 /// Text displayed when there are a specific number of deferrals remaining.
                 /// </summary>
                 [JsonProperty]
-                public readonly string DeferralsRemaining;
+                public string DeferralsRemaining { get; }
 
                 /// <summary>
                 /// Text displayed when there is a specific deferral deadline.
                 /// </summary>
                 [JsonProperty]
-                public readonly string DeferralDeadline;
+                public string DeferralDeadline { get; }
 
                 /// <summary>
                 /// This is a phrase used to describe the process of deferring a deploymen
                 /// </summary>
                 [JsonProperty]
-                public readonly string ButtonLeftText;
+                public string ButtonLeftText { get; }
 
                 /// <summary>
                 /// This is a phrase used to describe the process of closing applications and commencing the deployment.
                 /// </summary>
                 [JsonProperty]
-                public readonly string ButtonRightText;
+                public string ButtonRightText { get; }
 
                 /// <summary>
                 /// This is a phrase used to describe the process of commencing the deployment.
                 /// </summary>
                 [JsonProperty]
-                public readonly string ButtonLeftTextNoProcesses;
+                public string ButtonLeftTextNoProcesses { get; }
             }
         }
     }

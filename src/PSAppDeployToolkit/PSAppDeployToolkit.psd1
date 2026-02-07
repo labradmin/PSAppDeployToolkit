@@ -7,7 +7,7 @@
     RootModule = 'PSAppDeployToolkit.psm1'
 
     # Version number of this module.
-    ModuleVersion = '4.1.5'
+    ModuleVersion = '4.2.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -22,7 +22,7 @@
     CompanyName = 'PSAppDeployToolkit Team'
 
     # Copyright statement for this module
-    Copyright = 'Copyright © 2025 PSAppDeployToolkit Team. All rights reserved.'
+    Copyright = 'Copyright © 2026 PSAppDeployToolkit Team. All rights reserved.'
 
     # Description of the functionality provided by this module
     Description = 'Enterprise App Deployment, Simplified.'
@@ -88,7 +88,6 @@
         'Get-ADTCommandTable'
         'Get-ADTConfig'
         'Get-ADTDeferHistory'
-        'Get-ADTEnvironment'
         'Get-ADTEnvironmentTable'
         'Get-ADTEnvironmentVariable'
         'Get-ADTExecutableInfo'
@@ -112,7 +111,6 @@
         'Get-ADTSession'
         'Get-ADTShortcut'
         'Get-ADTStringTable'
-        'Get-ADTUniversalDate'
         'Get-ADTUserNotificationState'
         'Get-ADTUserProfiles'
         'Get-ADTWindowTitle'
@@ -129,6 +127,7 @@
         'Mount-ADTWimFile'
         'New-ADTErrorRecord'
         'New-ADTFolder'
+        'New-ADTLogFileName'
         'New-ADTMsiTransform'
         'New-ADTShortcut'
         'New-ADTTemplate'
@@ -138,6 +137,7 @@
         'Out-ADTPowerShellEncodedCommand'
         'Register-ADTDll'
         'Remove-ADTContentFromCache'
+        'Remove-ADTDesktopShortcut'
         'Remove-ADTEdgeExtension'
         'Remove-ADTEnvironmentVariable'
         'Remove-ADTFile'
@@ -240,7 +240,7 @@
             ReleaseNotes = 'https://github.com/psappdeploytoolkit/psappdeploytoolkit/releases/latest'
 
             # Prerelease tag for PSGallery.
-            # Prerelease = 'alpha1'
+            Prerelease = 'alpha1'
 
         } # End of PSData hashtable
 

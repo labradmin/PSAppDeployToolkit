@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using Newtonsoft.Json;
 
@@ -10,12 +11,6 @@ namespace PSADT.WindowManagement
     /// <remarks>This record provides criteria for filtering windows based on their titles, handles, or parent
     /// processes. Any of the filters can be null, indicating that the corresponding criterion should not be
     /// applied.</remarks>
-    /// <param name="windowTitleFilter">An array of strings specifying window titles to match. Only windows with titles that match one of the strings in
-    /// this array will be included. If null, no filtering by title is applied.</param>
-    /// <param name="windowHandleFilter">An array of window handles (as <see langword="nint"/> values) to match. Only windows with handles that match one
-    /// of the values in this array will be included. If null, no filtering by handle is applied.</param>
-    /// <param name="parentProcessFilter">An array of strings specifying parent process names to match. Only windows associated with processes whose names
-    /// match one of the strings in this array will be included. If null, no filtering by parent process is applied.</param>
     public sealed record WindowInfoOptions
     {
         /// <summary>
@@ -28,19 +23,49 @@ namespace PSADT.WindowManagement
         /// filtering is applied based on window handles.</param>
         /// <param name="parentProcessFilter">An optional array of strings specifying parent process names to filter. If <see langword="null"/>, no
         /// filtering is applied based on parent processes.</param>
+        /// <param name="parentProcessIdFilter">A list of parent process IDs to include in the filter. Only windows whose parent process ID matches any of
+        /// these values will be considered. Can be null to disable parent process ID filtering.</param>
+        /// <param name="parentProcessMainWindowHandleFilter">A list of main window handles for parent processes to include in the filter. Only windows whose parent
+        /// process main window handle matches any of these values will be considered. Can be null to disable this
+        /// filtering.</param>
         [JsonConstructor]
-        public WindowInfoOptions(ReadOnlyCollection<string>? windowTitleFilter = null, ReadOnlyCollection<nint>? windowHandleFilter = null, ReadOnlyCollection<string>? parentProcessFilter = null)
+        public WindowInfoOptions(IReadOnlyList<string>? windowTitleFilter, IReadOnlyList<nint>? windowHandleFilter, IReadOnlyList<string>? parentProcessFilter, IReadOnlyList<int> parentProcessIdFilter, IReadOnlyList<nint> parentProcessMainWindowHandleFilter)
         {
-            WindowTitleFilter = windowTitleFilter;
-            WindowHandleFilter = windowHandleFilter;
-            ParentProcessFilter = parentProcessFilter;
+            // Ensure list inputs are not empty if they're not null.
+            if (windowTitleFilter?.Count == 0)
+            {
+                throw new ArgumentException("The window title filter list cannot be empty.", nameof(windowTitleFilter));
+            }
+            if (windowHandleFilter?.Count == 0)
+            {
+                throw new ArgumentException("The window handle filter list cannot be empty.", nameof(windowHandleFilter));
+            }
+            if (parentProcessFilter?.Count == 0)
+            {
+                throw new ArgumentException("The parent process filter list cannot be empty.", nameof(parentProcessFilter));
+            }
+            if (parentProcessIdFilter?.Count == 0)
+            {
+                throw new ArgumentException("The parent process ID filter list cannot be empty.", nameof(parentProcessIdFilter));
+            }
+            if (parentProcessMainWindowHandleFilter?.Count == 0)
+            {
+                throw new ArgumentException("The parent process main window handle filter list cannot be empty.", nameof(parentProcessMainWindowHandleFilter));
+            }
+
+            // Assign read-only collections or null based on input.
+            WindowTitleFilter = windowTitleFilter?.Count > 0 ? new ReadOnlyCollection<string>([.. windowTitleFilter]) : null;
+            WindowHandleFilter = windowHandleFilter?.Count > 0 ? new ReadOnlyCollection<nint>([.. windowHandleFilter]) : null;
+            ParentProcessFilter = parentProcessFilter?.Count > 0 ? new ReadOnlyCollection<string>([.. parentProcessFilter]) : null;
+            ParentProcessIdFilter = parentProcessIdFilter?.Count > 0 ? new ReadOnlyCollection<int>([.. parentProcessIdFilter]) : null;
+            ParentProcessMainWindowHandleFilter = parentProcessMainWindowHandleFilter?.Count > 0 ? new ReadOnlyCollection<nint>([.. parentProcessMainWindowHandleFilter]) : null;
         }
 
         /// <summary>
         /// Gets the filter criteria for window titles.
         /// </summary>
         [JsonProperty]
-        public readonly IReadOnlyList<string>? WindowTitleFilter;
+        public IReadOnlyList<string>? WindowTitleFilter { get; }
 
         /// <summary>
         /// Represents a filter for window handles used to determine which windows are included in certain operations.
@@ -48,15 +73,32 @@ namespace PSADT.WindowManagement
         /// <remarks>This array contains the native integer (nint) values of window handles to be
         /// filtered. If the array is <see langword="null"/>, no filtering is applied.</remarks>
         [JsonProperty]
-        public readonly IReadOnlyList<nint>? WindowHandleFilter;
+        public IReadOnlyList<nint>? WindowHandleFilter { get; }
 
         /// <summary>
         /// Represents a filter for parent process names used to determine specific conditions or behaviors.
         /// </summary>
         /// <remarks>This array contains the names of parent processes that are used as a filter. If the
-        /// array is null or empty,  no filtering is applied. This member is intended for internal use and should not be
+        /// array is null or empty, no filtering is applied. This member is intended for internal use and should not be
         /// accessed directly.</remarks>
         [JsonProperty]
-        public readonly IReadOnlyList<string>? ParentProcessFilter;
+        public IReadOnlyList<string>? ParentProcessFilter { get; }
+
+        /// <summary>
+        /// Gets the list of parent process IDs to use as a filter when selecting processes.
+        /// </summary>
+        /// <remarks>If the list is empty, no filtering by parent process ID is applied. This property is
+        /// read-only.</remarks>
+        [JsonProperty]
+        public IReadOnlyList<int>? ParentProcessIdFilter { get; }
+
+        /// <summary>
+        /// Gets the collection of main window handles used to filter parent processes.
+        /// </summary>
+        /// <remarks>This property provides a read-only list of native window handles (HWND) that are used
+        /// to identify or filter parent processes based on their main window. The list may be empty if no filters are
+        /// applied.</remarks>
+        [JsonProperty]
+        public IReadOnlyList<nint>? ParentProcessMainWindowHandleFilter { get; }
     }
 }

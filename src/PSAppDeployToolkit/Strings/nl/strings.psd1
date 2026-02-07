@@ -70,8 +70,8 @@
         }
     }
     RestartPrompt = @{
-        ButtonRestartLater = 'Minimaliseren.'
-        ButtonRestartNow = 'Nu opnieuw opstarten.'
+        ButtonRestartLater = 'Minimaliseren'
+        ButtonRestartNow = 'Nu opnieuw opstarten'
         Message = @{
             Install = 'Om de installatie te voltooien, moet u uw computer opnieuw opstarten.'
             Repair = 'Om de reparatie te voltooien, moet u uw computer opnieuw opstarten.'
@@ -125,8 +125,8 @@
         }
         Fluent = @{
             DialogMessage = @{
-                Install = 'Sla uw werk op voordat u verder gaat, omdat de volgende applicaties automatisch worden gesloten. Als u nog uitstel heeft, kunt u de de-installatie ook uitstellen.'
-                Repair = 'Sla uw werk op voordat u verder gaat, omdat de volgende applicaties automatisch worden gesloten. Als u nog uitstel heeft, kunt u de de-installatie ook uitstellen.'
+                Install = 'Sla uw werk op voordat u verder gaat, omdat de volgende applicaties automatisch worden gesloten. Als u nog uitstel heeft, kunt u de installatie ook uitstellen.'
+                Repair = 'Sla uw werk op voordat u verder gaat, omdat de volgende applicaties automatisch worden gesloten. Als u nog uitstel heeft, kunt u de reparatie ook uitstellen.'
                 Uninstall = 'Sla uw werk op voordat u verder gaat, omdat de volgende applicaties automatisch worden gesloten. Als u nog uitstel heeft, kunt u de de-installatie ook uitstellen.'
             }
             DialogMessageNoProcesses = @{
@@ -138,14 +138,14 @@
             DeferralsRemaining = 'Resterende uitstel'
             DeferralDeadline = 'Uitsteltermijn'
             ButtonLeftText = @{
-                Install = 'Sluit Apps & installeer.'
-                Repair = 'Sluit Apps & repareer.'
-                Uninstall = 'Sluit Apps & de-installeer.'
+                Install = 'Sluit Apps en Installeer'
+                Repair = 'Sluit Apps en Repareer'
+                Uninstall = 'Sluit Apps en De-installeer'
             }
             ButtonLeftNoProcessesText = @{
-                Install = 'Installeren.'
-                Repair = 'Repareren.'
-                Uninstall = 'De-installeren.'
+                Install = 'Installeren'
+                Repair = 'Repareren'
+                Uninstall = 'De-installeren'
             }
             ButtonRightText = 'Uitstellen'
             Subtitle = @{

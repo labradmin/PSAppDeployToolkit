@@ -25,7 +25,7 @@ namespace PSADT.Utilities
         public static string GetSectionKeyValue(string filepath, string section, string key)
         {
             Span<char> buffer = stackalloc char[4096];
-            var res = Kernel32.GetPrivateProfileString(section, key, null, buffer, filepath);
+            uint res = Kernel32.GetPrivateProfileString(section, key, null, buffer, filepath);
             return buffer.Slice(0, (int)res).ToString().TrimRemoveNull();
         }
 
@@ -36,7 +36,10 @@ namespace PSADT.Utilities
         /// <param name="key"></param>
         /// <param name="value"></param>
         /// <param name="filepath"></param>
-        public static void WriteSectionKeyValue(string filepath, string section, string? key, string? value) => Kernel32.WritePrivateProfileString(section, key, value, filepath);
+        public static void WriteSectionKeyValue(string filepath, string section, string? key, string? value)
+        {
+            _ = Kernel32.WritePrivateProfileString(section, key, value, filepath);
+        }
 
         /// <summary>
         /// Gets all key/value pairs in a section of an INI file.
@@ -46,7 +49,7 @@ namespace PSADT.Utilities
         /// <returns>OrderedDictionary of key/value pairs in the section</returns>
         public static OrderedDictionary? GetSection(string filepath, string section)
         {
-            var sections = GetSectionNames(filepath);
+            ReadOnlyCollection<string> sections = GetSectionNames(filepath);
             if (!sections.Contains(section, StringComparer.OrdinalIgnoreCase))
             {
                 throw new ArgumentException($"Section [{section}] was not found in the INI file. Sections found: {string.Join(", ", sections)}", nameof(section));
@@ -63,22 +66,22 @@ namespace PSADT.Utilities
                 throw new InvalidDataException($"Failed to get section [{section}] from the INI file.", ex);
             }
 
-            OrderedDictionary dictionary = new();
-            foreach (var entry in buffer.Slice(0, (int)res).ToString().Split('\0'))
+            OrderedDictionary dictionary = [];
+            foreach (string entry in buffer.Slice(0, (int)res).ToString().Split('\0'))
             {
                 if (string.IsNullOrWhiteSpace(entry))
                 {
                     continue;
                 }
 
-                var separatorIndex = entry.IndexOf('=');
+                int separatorIndex = entry.IndexOf('=');
                 if (separatorIndex <= 0)
                 {
                     continue;
                 }
 
-                var key = entry.Substring(0, separatorIndex);
-                var value = entry.Substring(separatorIndex + 1);
+                string key = entry.Substring(0, separatorIndex);
+                string value = entry.Substring(separatorIndex + 1);
                 if (dictionary.Contains(key))
                 {
                     dictionary[key] = value;
@@ -99,8 +102,8 @@ namespace PSADT.Utilities
         private static ReadOnlyCollection<string> GetSectionNames(string filepath)
         {
             Span<char> buffer = new char[65536];
-            var res = Kernel32.GetPrivateProfileSectionNames(buffer, filepath);
-            return buffer.Slice(0, (int)res).ToString().Split('\0').Where(name => !string.IsNullOrWhiteSpace(name)).ToList().AsReadOnly();
+            uint res = Kernel32.GetPrivateProfileSectionNames(buffer, filepath);
+            return new([.. buffer.Slice(0, (int)res).ToString().Split(['\0'], StringSplitOptions.RemoveEmptyEntries).Where(name => !string.IsNullOrWhiteSpace(name))]);
         }
 
         /// <summary>
@@ -111,9 +114,9 @@ namespace PSADT.Utilities
         /// <param name="filepath">Path to the INI file</param>
         public static void WriteSection(string filepath, string section, IDictionary? content)
         {
-            if (content == null)
+            if (content is null)
             {
-                Kernel32.WritePrivateProfileSection(section, null, filepath);
+                _ = Kernel32.WritePrivateProfileSection(section, null, filepath);
                 return;
             }
 
@@ -122,7 +125,7 @@ namespace PSADT.Utilities
             {
                 foreach (DictionaryEntry entry in content)
                 {
-                    if (!(entry.Key is string || entry.Key is ValueType))
+                    if (entry.Key is not (string or ValueType))
                     {
                         throw new ArgumentException($"Invalid key type: [{entry.Key?.GetType()?.FullName}]. Keys must be of type string, numeric, or boolean.", nameof(content));
                     }
@@ -133,22 +136,22 @@ namespace PSADT.Utilities
                         throw new ArgumentException($"Invalid key in content: Key cannot be null, empty, or whitespace. Original key type: [{entry.Key?.GetType()?.FullName}]", nameof(content));
                     }
 
-                    if (!(entry.Value is string || entry.Value is ValueType || entry.Value == null))
+                    if (entry.Value is not (string or ValueType or null))
                     {
                         throw new ArgumentException($"Invalid value type: [{entry.Value.GetType().FullName}] for key '{entry.Key}'. Values must be null, string, numeric, or boolean.", nameof(content));
                     }
-                    entries.Append(key);
-                    entries.Append('=');
-                    entries.Append(entry.Value?.ToString()?.Trim() ?? string.Empty);
-                    entries.Append('\0');
+                    _ = entries.Append(key);
+                    _ = entries.Append('=');
+                    _ = entries.Append(entry.Value?.ToString()?.Trim() ?? string.Empty);
+                    _ = entries.Append('\0');
                 }
             }
             else
             {
-                entries.Append('\0');
+                _ = entries.Append('\0');
             }
-            entries.Append('\0');
-            Kernel32.WritePrivateProfileSection(section, entries.ToString(), filepath);
+            _ = entries.Append('\0');
+            _ = Kernel32.WritePrivateProfileSection(section, entries.ToString(), filepath);
         }
     }
 }

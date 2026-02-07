@@ -27,9 +27,6 @@ function Invoke-ADTCommandWithRetries
 
         If this parameter is supplied and the `-Retries` parameter isn't, this command will continue to retry the provided command until the time limit runs out.
 
-    .PARAMETER SleepSeconds
-        This parameter is obsolete and will be removed in PSAppDeployToolkit 4.2.0. Please use `-SleepDuration` instead.
-
     .PARAMETER Parameters
         A 'ValueFromRemainingArguments' parameter to collect the parameters as would be passed to the provided Command.
 
@@ -51,9 +48,19 @@ function Invoke-ADTCommandWithRetries
         Downloads the latest WinGet installer to the SupportFiles directory. If the command fails, it will retry 3 times with 5 seconds between each attempt.
 
     .EXAMPLE
+        Invoke-ADTCommandWithRetries Get-FileHash -Path '\\MyShare\MyFile' -MaximumElapsedTime (New-TimeSpan -Seconds 90) -SleepDuration 00:00:01
+
+        Gets the hash of a file on an SMB share. If the connection to the SMB share drops, it will retry the command every 2 seconds until it successfully gets the hash or 90 seconds have passed since the initial attempt.
+
+    .EXAMPLE
         Invoke-ADTCommandWithRetries Get-FileHash -Path '\\MyShare\MyFile' -MaximumElapsedTime (New-TimeSpan -Seconds 90) -SleepDuration (New-TimeSpan -Seconds 1)
 
         Gets the hash of a file on an SMB share. If the connection to the SMB share drops, it will retry the command every 2 seconds until it successfully gets the hash or 90 seconds have passed since the initial attempt.
+
+    .EXAMPLE
+        Invoke-ADTCommandWithRetries Copy-ADTFile -Path '\\MyShare\MyFile' -Destination 'C:\Windows\Temp' -Retries 5 -MaximumElapsedTime 00:00:05
+
+        Copies a file from an SMB share to C:\Windows\Temp. If the connection to the SMB share drops, it will retry the command once every 5 seconds until either 5 attempts have been made or 5 minutes have passed since the initial attempt.
 
     .EXAMPLE
         Invoke-ADTCommandWithRetries Copy-ADTFile -Path '\\MyShare\MyFile' -Destination 'C:\Windows\Temp' -Retries 5 -MaximumElapsedTime (New-TimeSpan -Minutes 5)
@@ -65,7 +72,7 @@ function Invoke-ADTCommandWithRetries
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -103,11 +110,6 @@ function Invoke-ADTCommandWithRetries
             })]
         [System.TimeSpan]$MaximumElapsedTime,
 
-        [Parameter(Mandatory = $false)]
-        [System.Obsolete("Please use 'SleepDuration' instead as this will be removed in PSAppDeployToolkit 4.2.0.")]
-        [ValidateRange(1, 60)]
-        [System.UInt32]$SleepSeconds = 5,
-
         [Parameter(Mandatory = $false, ValueFromRemainingArguments = $true, DontShow = $true)]
         [ValidateNotNullOrEmpty()]
         [System.Collections.Generic.IReadOnlyList[System.Object]]$Parameters
@@ -117,16 +119,6 @@ function Invoke-ADTCommandWithRetries
     {
         # Initialize function.
         Initialize-ADTFunction -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState
-
-        # Log the deprecation of -SleepSeconds to the log.
-        if ($PSBoundParameters.ContainsKey('SleepSeconds'))
-        {
-            Write-ADTLogEntry -Message "The parameter [-SleepSeconds] is obsolete and will be removed in PSAppDeployToolkit 4.2.0. Please use [-SleepDuration] instead." -Severity 2
-            if (!$PSBoundParameters.ContainsKey('SleepDuration'))
-            {
-                $SleepDuration = [System.TimeSpan]::FromSeconds($SleepSeconds)
-            }
-        }
     }
 
     process
@@ -212,7 +204,7 @@ function Invoke-ADTCommandWithRetries
         catch
         {
             # Process the caught error, log it and throw depending on the specified ErrorAction.
-            Invoke-ADTFunctionErrorHandler -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState -ErrorRecord $_
+            Invoke-ADTFunctionErrorHandler -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState -ErrorRecord $_ -Silent
         }
     }
 

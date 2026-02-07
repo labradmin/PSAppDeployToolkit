@@ -39,6 +39,9 @@ function Start-ADTProcess
     .PARAMETER InheritEnvironmentVariables
         Specifies whether the process running as a user should inherit the SYSTEM account's environment variables.
 
+    .PARAMETER DenyUserTermination
+        Specifies that users cannot terminate the process started in their context. The user will still be able to terminate the process if they're an administrator, though.
+
     .PARAMETER UseUnelevatedToken
         If the current process is elevated, starts the new process unelevated using the user's unelevated linked token.
 
@@ -139,9 +142,24 @@ function Start-ADTProcess
         Launch InstallShield "setup.exe" with embedded MSI and force log files to the logging folder.
 
     .EXAMPLE
+        Start-ADTProcessAs -FilePath 'setup.exe' -ArgumentList "/s /v`"ALLUSERS=1 /qn /L* `"$((Get-ADTConfig).Toolkit.LogPath)\$($adtSession.InstallName).log`"`"" -Timeout 00:10:00
+
+        Launch InstallShield "setup.exe" with embedded MSI and force log files to the logging folder, terminating the process if it takes longer than 10 minutes to complete.
+
+    .EXAMPLE
+        Start-ADTProcessAs -FilePath 'setup.exe' -ArgumentList "/s /v`"ALLUSERS=1 /qn /L* `"$((Get-ADTConfig).Toolkit.LogPath)\$($adtSession.InstallName).log`"`"" -Timeout (New-TimeSpan -Minutes 10)
+
+        Launch InstallShield "setup.exe" with embedded MSI and force log files to the logging folder, terminating the process if it takes longer than 10 minutes to complete.
+
+    .EXAMPLE
         $result = Start-ADTProcess -FilePath "setup.exe" -ArgumentList "-i -f `"$($adtSession.DirFiles)\licenseFile.lic`"" -CreateNoWindow -ErrorAction SilentlyContinue -PassThru
 
         Launch "setup.exe" with -PassThru so we can capture the exit code and stdout/stderr from the executable if it's a console application.
+
+    .EXAMPLE
+        $result = Start-ADTProcess -FilePath cmd.exe -ArgumentList '/c', 'echo Testing stdout capture. & exit 0' -CreateNoWindow -PassThru
+
+        Launch cmd.exe to echo out a message to stdout, specifically taking advantage of our `-ArgumentList` array support to avoid escaped quote issues.
 
     .INPUTS
         None
@@ -161,16 +179,18 @@ function Start-ADTProcess
     .NOTES
         An active ADT session is NOT required to use this function.
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
         https://psappdeploytoolkit.com/docs/reference/functions/Start-ADTProcess
     #>
 
-    [CmdletBinding(DefaultParameterSetName = 'Default_CreateWindow_Wait')]
+    [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = 'Default_CreateWindow_Wait')]
     [OutputType([PSADT.ProcessManagement.ProcessHandle])]
     [OutputType([PSADT.ProcessManagement.ProcessResult])]
     param
@@ -201,7 +221,7 @@ function Start-ADTProcess
         [Parameter(Mandatory = $true, ParameterSetName = 'RunAsActiveUser_CreateNoWindow_NoWait')]
         [Parameter(Mandatory = $true, ParameterSetName = 'RunAsActiveUser_CreateNoWindow_Timeout')]
         [ValidateNotNullOrEmpty()]
-        [PSADT.Module.RunAsActiveUser]$RunAsActiveUser,
+        [PSADT.Foundation.RunAsActiveUser]$RunAsActiveUser,
 
         [Parameter(Mandatory = $false, ParameterSetName = 'RunAsActiveUser_CreateWindow_Wait')]
         [Parameter(Mandatory = $false, ParameterSetName = 'RunAsActiveUser_CreateWindow_NoWait')]
@@ -235,6 +255,17 @@ function Start-ADTProcess
         [Parameter(Mandatory = $false, ParameterSetName = 'RunAsActiveUser_CreateNoWindow_NoWait')]
         [Parameter(Mandatory = $false, ParameterSetName = 'RunAsActiveUser_CreateNoWindow_Timeout')]
         [System.Management.Automation.SwitchParameter]$InheritEnvironmentVariables,
+
+        [Parameter(Mandatory = $false, ParameterSetName = 'RunAsActiveUser_CreateWindow_Wait')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'RunAsActiveUser_CreateWindow_NoWait')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'RunAsActiveUser_CreateWindow_Timeout')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'RunAsActiveUser_WindowStyle_Wait')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'RunAsActiveUser_WindowStyle_NoWait')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'RunAsActiveUser_WindowStyle_Timeout')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'RunAsActiveUser_CreateNoWindow_Wait')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'RunAsActiveUser_CreateNoWindow_NoWait')]
+        [Parameter(Mandatory = $false, ParameterSetName = 'RunAsActiveUser_CreateNoWindow_Timeout')]
+        [System.Management.Automation.SwitchParameter]$DenyUserTermination,
 
         [Parameter(Mandatory = $false, ParameterSetName = 'Default_CreateWindow_Wait')]
         [Parameter(Mandatory = $false, ParameterSetName = 'Default_CreateWindow_NoWait')]
@@ -497,17 +528,9 @@ function Start-ADTProcess
             Get-ADTSession
         }
         Initialize-ADTFunction -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState
+        $canSetExitCode = $true
 
         # Set up defaults if not specified.
-        if (!$PSBoundParameters.ContainsKey('MsiExecWaitTime'))
-        {
-            if (!$adtSession)
-            {
-                $null = Initialize-ADTModuleIfUnitialized -Cmdlet $PSCmdlet
-            }
-            $MsiExecWaitTime = [System.TimeSpan]::FromSeconds((Get-ADTConfig).MSI.MutexWaitTime)
-        }
-
         if (!$PSBoundParameters.ContainsKey('SuccessExitCodes'))
         {
             $SuccessExitCodes = if ($adtSession)
@@ -518,6 +541,10 @@ function Start-ADTProcess
             {
                 0
             }
+        }
+        else
+        {
+            $canSetExitCode = $false
         }
         if (!$PSBoundParameters.ContainsKey('RebootExitCodes'))
         {
@@ -530,12 +557,24 @@ function Start-ADTProcess
                 1641, 3010
             }
         }
+        else
+        {
+            $canSetExitCode = $false
+        }
+        if (!$PSBoundParameters.ContainsKey('MsiExecWaitTime'))
+        {
+            if (!$adtSession)
+            {
+                $null = Initialize-ADTModuleIfUnitialized -Cmdlet $PSCmdlet
+            }
+            $MsiExecWaitTime = [System.TimeSpan]::FromSeconds((Get-ADTConfig).MSI.MutexWaitTime)
+        }
 
         # Set up initial variables.
         $funcCaller = Get-PSCallStack | Select-Object -Skip 1 | Select-Object -First 1 | & { process { $_.InvocationInfo.MyCommand } }
         $extInvoker = !$funcCaller -or !$funcCaller.Source.StartsWith($MyInvocation.MyCommand.Module.Name) -or $funcCaller.Name.Equals('Start-ADTMsiProcess')
-        $SEE_MASK_NOZONECHECKS = [System.Environment]::GetEnvironmentVariable('SEE_MASK_NOZONECHECKS')
-        [System.Environment]::SetEnvironmentVariable('SEE_MASK_NOZONECHECKS', 1)
+        $SEE_MASK_NOZONECHECKS = [PSADT.Utilities.EnvironmentUtilities]::GetEnvironmentVariable('SEE_MASK_NOZONECHECKS')
+        [PSADT.Utilities.EnvironmentUtilities]::SetEnvironmentVariable('SEE_MASK_NOZONECHECKS', 1)
 
         # Set up cancellation token.
         $cancellationTokenSource = if ($Timeout)
@@ -545,6 +584,63 @@ function Start-ADTProcess
         $cancellationToken = if ($cancellationTokenSource)
         {
             $cancellationTokenSource.Token
+        }
+
+        # Internal worker function to set the session exit code.
+        function Set-ADTSessionExitCode
+        {
+            [CmdletBinding()]
+            param
+            (
+                [Parameter(Mandatory = $true)]
+                [ValidateNotNullOrEmpty()]
+                [System.Nullable[System.Int32]]$ExitCode
+            )
+
+            # Throw if there's no active session; the caller didn't do their homework.
+            if (!$adtSession)
+            {
+                $naerParams = @{
+                    Exception = [System.InvalidOperationException]::new("The function [Start-ADTProcess] attempted to set a session exit code, but no deployment session is active.")
+                    Category = [System.Management.Automation.ErrorCategory]::ObjectNotFound
+                    ErrorId = 'NoActiveAdtDeploymentSession'
+                    TargetObject = $ExitCode
+                    RecommendedAction = "Please report this to the PSAppDeployToolkit team for further review."
+                }
+                $PSCmdlet.ThrowTerminatingError((New-ADTErrorRecord @naerParams))
+            }
+            if (!$canSetExitCode)
+            {
+                $naerParams = @{
+                    Exception = [System.InvalidOperationException]::new("The function [Start-ADTProcess] is attempting to set a session exit code when it shouldn't.")
+                    Category = [System.Management.Automation.ErrorCategory]::ObjectNotFound
+                    ErrorId = 'SetAdtDeploymentSessionExitCodeError'
+                    TargetObject = $ExitCode
+                    RecommendedAction = "Please report this to the PSAppDeployToolkit team for further review."
+                }
+                $PSCmdlet.ThrowTerminatingError((New-ADTErrorRecord @naerParams))
+            }
+
+            # Start working out whether we can set the exit code or not.
+            $adtSessionStatus = $adtSession.GetDeploymentStatus()
+            $isSuccessCode = $SuccessExitCodes.Contains($ExitCode)
+            $isRestartCode = $RebootExitCodes.Contains($ExitCode)
+            $isFailureCode = !$isSuccessCode -and !$isRestartCode
+            if ($isFailureCode -and ($adtSessionStatus -le [PSAppDeployToolkit.SessionManagement.DeploymentStatus]::Error))
+            {
+                $adtSession.SetExitCode($ExitCode)
+                return
+            }
+            if ($isRestartCode -and ($adtSessionStatus -le [PSAppDeployToolkit.SessionManagement.DeploymentStatus]::RestartRequired))
+            {
+                $adtSession.SetExitCode($ExitCode)
+                return
+            }
+            if ($isSuccessCode -and ($adtSessionStatus -le [PSAppDeployToolkit.SessionManagement.DeploymentStatus]::Complete))
+            {
+                $adtSession.SetExitCode($ExitCode)
+                return
+            }
         }
     }
 
@@ -578,7 +674,7 @@ function Start-ADTProcess
                             $adtSession.DirSupportFiles
                         }
                         $ExecutionContext.SessionState.Path.CurrentLocation.Path
-                        [System.Environment]::GetEnvironmentVariable('PATH').Split(';').Where({ ![System.String]::IsNullOrWhiteSpace($_) }).TrimEnd('\')
+                        [PSADT.Utilities.EnvironmentUtilities]::GetEnvironmentVariable('PATH').Split(';', [System.StringSplitOptions]::RemoveEmptyEntries).Where({ ![System.String]::IsNullOrWhiteSpace($_) }).TrimEnd('\')
                     )
                     if (!($fqPath = Get-Item -LiteralPath ($searchPaths -replace '$', "\$FilePath") -ErrorAction Ignore | Select-Object -ExpandProperty FullName -First 1))
                     {
@@ -623,13 +719,13 @@ function Start-ADTProcess
                 # We don't do this when a session isn't running so `Start-ADTProcess` works the way one should expect (i.e. like `Start-Process`).
                 if ($adtSession -and !$PSBoundParameters.ContainsKey('WorkingDirectory'))
                 {
-                    $WorkingDirectory = if ([System.IO.Path]::HasExtension($FilePath) -and [System.IO.Path]::IsPathRooted($FilePath) -and ($FilePath -notmatch 'msiexec'))
+                    if ([System.IO.Path]::HasExtension($FilePath) -and [System.IO.Path]::IsPathRooted($FilePath) -and ($FilePath -notmatch 'msiexec'))
                     {
-                        [System.IO.Path]::GetDirectoryName($FilePath)
+                        $WorkingDirectory = [System.IO.Path]::GetDirectoryName($FilePath)
                     }
                     elseif (![System.String]::IsNullOrWhiteSpace($adtSession.DirFiles))
                     {
-                        $adtSession.DirFiles
+                        $WorkingDirectory = $adtSession.DirFiles
                     }
                 }
 
@@ -643,7 +739,8 @@ function Start-ADTProcess
                     $UseHighestAvailableToken,
                     $InheritEnvironmentVariables,
                     $ExpandEnvironmentVariables,
-                    $false,
+                    $DenyUserTermination,
+                    $null,
                     $UseUnelevatedToken,
                     $UseShellExecute,
                     $Verb,
@@ -687,6 +784,10 @@ function Start-ADTProcess
                 }
 
                 # Start the process.
+                if (!$PSCmdlet.ShouldProcess("Process [$FilePath]", 'Execute'))
+                {
+                    return
+                }
                 ($execution = [PSADT.ProcessManagement.ProcessManager]::LaunchAsync($startInfo)) | Out-String | Out-Null
 
                 # Handle if the returned value is null.
@@ -820,7 +921,7 @@ function Start-ADTProcess
                         {
                             "N/A"
                         }
-                        Write-ADTLogEntry -Message "$property Output from Execution: $streamMessage" -HostLogStream ([PSADT.Module.HostLogStream]::None)
+                        Write-ADTLogEntry -Message "$property Output from Execution: $streamMessage" -HostLogStreamType ([PSAppDeployToolkit.Logging.HostLogStreamType]::None)
                     }
                 }
 
@@ -838,9 +939,9 @@ function Start-ADTProcess
                 }
 
                 # Update the session's last exit code with the value if externally called.
-                if ($adtSession -and $extInvoker -and !$ignoreExitCode)
+                if ($adtSession -and $extInvoker -and !$ignoreExitCode -and $canSetExitCode)
                 {
-                    $adtSession.SetExitCode($result.ExitCode)
+                    Set-ADTSessionExitCode -ExitCode $result.ExitCode
                 }
 
                 # If the passthru switch is specified, return the exit code and any output from process.
@@ -865,16 +966,17 @@ function Start-ADTProcess
             }
 
             # Switch on the exception type's name.
+            $sessionClosed = $false
             switch -Regex ($_.Exception.GetType().FullName)
             {
-                '^System\.Runtime\.InteropServices\.ExternalException$'
+                '^System\.(Runtime\.InteropServices\.ExternalException|Threading\.SynchronizationLockException)$'
                 {
                     # Handle requirements for when there's an active session.
                     if ($adtSession -and $extInvoker)
                     {
-                        if ($OriginalErrorAction -notmatch '^(SilentlyContinue|Ignore)$')
+                        if (($OriginalErrorAction -notmatch '^(SilentlyContinue|Ignore)$') -and $canSetExitCode)
                         {
-                            $adtSession.SetExitCode($result.ExitCode)
+                            Set-ADTSessionExitCode -ExitCode $result.ExitCode
                         }
                         if ($ExitOnProcessFailure)
                         {
@@ -887,6 +989,7 @@ function Start-ADTProcess
                     Invoke-ADTFunctionErrorHandler @iafehParams -Silent
                     if ($iafehParams.ContainsKey('ErrorAction'))
                     {
+                        $sessionClosed = $true
                         Close-ADTSession
                     }
                     break
@@ -904,9 +1007,15 @@ function Start-ADTProcess
                 default
                 {
                     # This is the handler for any other error/exception that may occur.
-                    Invoke-ADTFunctionErrorHandler @iafehParams -LogMessage "Error occurred while attempting to start the specified process."
+                    Invoke-ADTFunctionErrorHandler @iafehParams -LogMessage "Error occurred while attempting to start the specified process." -DisableErrorResolving:$false -ErrorAction Stop
                     break
                 }
+            }
+
+            # Break if the session has closed as Close-ADTSession won't be able to break out of the above switch.
+            if ($sessionClosed)
+            {
+                break
             }
 
             # If the passthru switch is specified, return the exit code and any output from process.
@@ -928,7 +1037,7 @@ function Start-ADTProcess
                 $cancellationToken = $null
                 $cancellationTokenSource.Dispose()
             }
-            [System.Environment]::SetEnvironmentVariable('SEE_MASK_NOZONECHECKS', $SEE_MASK_NOZONECHECKS)
+            [PSADT.Utilities.EnvironmentUtilities]::SetEnvironmentVariable('SEE_MASK_NOZONECHECKS', $SEE_MASK_NOZONECHECKS)
         }
     }
 

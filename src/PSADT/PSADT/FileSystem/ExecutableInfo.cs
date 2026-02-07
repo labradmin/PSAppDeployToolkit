@@ -1,7 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.Runtime.InteropServices;
-using PSADT.SafeHandles;
+using PSADT.Extensions;
 using Windows.Win32;
 using Windows.Win32.System.Diagnostics.Debug;
 using Windows.Win32.System.SystemInformation;
@@ -24,23 +24,22 @@ namespace PSADT.FileSystem
             // Internal helper methods to read structures and check for CLR header.
             static bool HasCLRHeader(__IMAGE_DATA_DIRECTORY_16 dataDirectory)
             {
-                if (dataDirectory.Length > 14)
+                if (dataDirectory.Length <= 14)
                 {
-                    var comDir = dataDirectory._14;
-                    return comDir.VirtualAddress != 0 && comDir.Size != 0;
+                    return false;
                 }
-                return false;
+                IMAGE_DATA_DIRECTORY comDir = dataDirectory._14;
+                return comDir.VirtualAddress != 0 && comDir.Size != 0;
             }
-            static T ReadStruct<T>(BinaryReader reader) where T : struct
+            static ref readonly T ReadStruct<T>(BinaryReader reader) where T : unmanaged
             {
-                using var handle = SafePinnedGCHandle.Alloc(reader.ReadBytes(Marshal.SizeOf<T>()));
-                return handle.ToStructure<T>();
+                return ref reader.ReadBytes(Marshal.SizeOf<T>()).AsSpan().AsReadOnlyStructure<T>();
             }
 
             // Read the DOS header and check for the PE signature.
             using FileStream fs = new(filePath, FileMode.Open, FileAccess.Read);
             using BinaryReader reader = new(fs);
-            var dosHeader = ReadStruct<IMAGE_DOS_HEADER>(reader); fs.Seek(dosHeader.e_lfanew, SeekOrigin.Begin);
+            ref readonly IMAGE_DOS_HEADER dosHeader = ref ReadStruct<IMAGE_DOS_HEADER>(reader); _ = fs.Seek(dosHeader.e_lfanew, SeekOrigin.Begin);
             if (dosHeader.e_magic != PInvoke.IMAGE_DOS_SIGNATURE)
             {
                 throw new InvalidDataException("The specified file does not have a valid PE header.");
@@ -51,16 +50,16 @@ namespace PSADT.FileSystem
             }
 
             // Read the file header and optional header, returning the ExecutableInfo.
-            var machine = ReadStruct<IMAGE_FILE_HEADER>(reader).Machine;
-            var magic = (IMAGE_OPTIONAL_HEADER_MAGIC)reader.ReadUInt16(); fs.Seek(-2, SeekOrigin.Current);
+            ref readonly IMAGE_FILE_MACHINE machine = ref ReadStruct<IMAGE_FILE_HEADER>(reader).Machine;
+            IMAGE_OPTIONAL_HEADER_MAGIC magic = (IMAGE_OPTIONAL_HEADER_MAGIC)reader.ReadUInt16(); _ = fs.Seek(-2, SeekOrigin.Current);
             if (magic == IMAGE_OPTIONAL_HEADER_MAGIC.IMAGE_NT_OPTIONAL_HDR32_MAGIC)
             {
-                var opt32 = ReadStruct<IMAGE_OPTIONAL_HEADER32>(reader);
+                ref readonly IMAGE_OPTIONAL_HEADER32 opt32 = ref ReadStruct<IMAGE_OPTIONAL_HEADER32>(reader);
                 return new(filePath, machine, opt32.Subsystem, HasCLRHeader(opt32.DataDirectory), opt32.AddressOfEntryPoint, opt32.ImageBase);
             }
             else if (magic == IMAGE_OPTIONAL_HEADER_MAGIC.IMAGE_NT_OPTIONAL_HDR64_MAGIC)
             {
-                var opt64 = ReadStruct<IMAGE_OPTIONAL_HEADER64>(reader);
+                ref readonly IMAGE_OPTIONAL_HEADER64 opt64 = ref ReadStruct<IMAGE_OPTIONAL_HEADER64>(reader);
                 return new(filePath, machine, opt64.Subsystem, HasCLRHeader(opt64.DataDirectory), opt64.AddressOfEntryPoint, opt64.ImageBase);
             }
             else
@@ -91,31 +90,31 @@ namespace PSADT.FileSystem
         /// <summary>
         /// The FileInfo object for the executable.
         /// </summary>
-        public readonly FileInfo FileInfo;
+        public FileInfo FileInfo { get; }
 
         /// <summary>
         /// The machine type of the executable.
         /// </summary>
-        public readonly LibraryInterfaces.IMAGE_FILE_MACHINE Machine;
+        public LibraryInterfaces.IMAGE_FILE_MACHINE Machine { get; }
 
         /// <summary>
         /// The subsystem of the executable.
         /// </summary>
-        public readonly LibraryInterfaces.IMAGE_SUBSYSTEM Subsystem;
+        public LibraryInterfaces.IMAGE_SUBSYSTEM Subsystem { get; }
 
         /// <summary>
         /// Whether the file is a .NET executable.
         /// </summary>
-        public readonly bool IsDotNetExecutable;
+        public bool IsDotNetExecutable { get; }
 
         /// <summary>
         /// The entry point of the executable.
         /// </summary>
-        public readonly uint EntryPoint;
+        public uint EntryPoint { get; }
 
         /// <summary>
         /// The image base of the executable.
         /// </summary>
-        public readonly ulong ImageBase;
+        public ulong ImageBase { get; }
     }
 }

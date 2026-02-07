@@ -20,6 +20,7 @@ using System.Windows.Threading;
 using PSADT.AccountManagement;
 using PSADT.LibraryInterfaces;
 using PSADT.UserInterface.DialogOptions;
+using PSADT.Utilities;
 using iNKORE.UI.WPF.Modern;
 using iNKORE.UI.WPF.Modern.Controls;
 using iNKORE.UI.WPF.Modern.Controls.Primitives;
@@ -54,7 +55,7 @@ namespace PSADT.UserInterface.Dialogs.Fluent
             InitializeComponent();
 
             // If the accent color is passed through, update via ThemeManager
-            if (null != options.FluentAccentColor)
+            if (options.FluentAccentColor is not null)
             {
                 ThemeManager.Current.AccentColor = IntToColor(options.FluentAccentColor.Value);
             }
@@ -72,11 +73,11 @@ namespace PSADT.UserInterface.Dialogs.Fluent
             AutomationProperties.SetName(this, options.AppTitle);
 
             // Set remaining properties from the options
-            if (null != options.DialogPosition)
+            if (options.DialogPosition is not null)
             {
                 _dialogPosition = options.DialogPosition.Value;
             }
-            if (null != options.DialogAllowMove)
+            if (options.DialogAllowMove is not null)
             {
                 _dialogAllowMove = options.DialogAllowMove.Value;
             }
@@ -91,7 +92,7 @@ namespace PSADT.UserInterface.Dialogs.Fluent
             _customMessageText = customMessageText;
             _countdownDuration = countdownDuration;
             _countdownWarningDuration = countdownWarningDuration;
-            _countdownStopwatch = null != countdownStopwatch ? countdownStopwatch : new();
+            _countdownStopwatch = countdownStopwatch ?? new();
             CountdownStackPanel.Visibility = _countdownDuration.HasValue ? Visibility.Visible : Visibility.Collapsed;
 
             // Pre-format the custom message if we have one
@@ -117,46 +118,56 @@ namespace PSADT.UserInterface.Dialogs.Fluent
             ButtonMiddle.Visibility = Visibility.Collapsed;
             ButtonRight.Visibility = Visibility.Collapsed;
 
+            // Set up the app's tray icon if an override has been specified.
+            if (options.AppTaskbarIconImage is not null)
+            {
+                Icon = _appTaskbarIcon = GetIcon(options.AppTaskbarIconImage);
+            }
+
             // Set up everything related to the dialog icon.
-            _dialogBitmapCache = new(new Dictionary<ApplicationTheme, BitmapSource>
+            _dialogBitmapCache = new(new Dictionary<ApplicationTheme, BitmapSource>()
             {
                 { ApplicationTheme.Light, GetIcon(options.AppIconImage) },
-                { ApplicationTheme.Dark, GetIcon(options.AppIconDarkImage) }
+                { ApplicationTheme.Dark, GetIcon(options.AppIconDarkImage) },
             });
             ThemeManager.AddActualThemeChangedHandler(this, (_, _) => SetDialogIcon());
             SetDialogIcon();
 
             // Set the expiry timer if specified.
-            if (null != options.DialogExpiryDuration && options.DialogExpiryDuration.Value != TimeSpan.Zero)
+            if (options.DialogExpiryDuration > TimeSpan.Zero)
             {
                 _expiryTimer = new DispatcherTimer { Interval = options.DialogExpiryDuration.Value };
                 _expiryTimer.Tick += (sender, e) => CloseDialog();
             }
 
             // PersistPrompt timer code.
-            if (null != options.DialogPersistInterval && options.DialogPersistInterval.Value != TimeSpan.Zero)
+            if (options.DialogPersistInterval > TimeSpan.Zero)
             {
                 _persistTimer = new DispatcherTimer { Interval = options.DialogPersistInterval.Value };
                 _persistTimer.Tick += PersistTimer_Tick;
             }
 
             // Initialize countdown if specified
-            if (null != _countdownDuration)
+            if (_countdownDuration is not null)
             {
                 _countdownTimer = new(CountdownTimer_Tick, null, Timeout.Infinite, Timeout.Infinite);
-                CountdownStackPanel.Visibility = Visibility.Visible;    
+                CountdownStackPanel.Visibility = Visibility.Visible;
                 CountdownDeferPanelSeparator.Visibility = Visibility.Visible;
             }
 
             // Configure window events
-            Loaded += FluentDialog_Loaded;
+            SystemParameters.StaticPropertyChanged += SystemParameters_StaticPropertyChanged;
             SizeChanged += FluentDialog_SizeChanged;
+            Loaded += FluentDialog_Loaded;
         }
 
         /// <summary>
         /// Redefined ShowDialog method to allow for custom behavior.
         /// </summary>
-        public new void ShowDialog() => base.ShowDialog();
+        public new void ShowDialog()
+        {
+            _ = base.ShowDialog();
+        }
 
         /// <summary>
         /// Closes the dialog window and cancels associated operations. Can be called by timers or button clicks.
@@ -173,7 +184,10 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         /// Raises the PropertyChanged event for the specified property.
         /// </summary>
         /// <param name="propertyName"></param>
-        protected void OnPropertyChanged([CallerMemberName] string? propertyName = null) => PropertyChanged?.Invoke(this, new(propertyName));
+        protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new(propertyName));
+        }
 
         /// <summary>
         /// Prevent window movement by handling WM_SYSCOMMAND
@@ -226,7 +240,10 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         /// Prevents the user from closing the app via the taskbar
         /// </summary>
         /// <param name="e"></param>
-        protected override void OnClosing(CancelEventArgs e) => e.Cancel = !_canClose;
+        protected override void OnClosing(CancelEventArgs e)
+        {
+            e.Cancel = !_canClose;
+        }
 
         /// <summary>
         /// Clean up resources when the window is closed
@@ -247,6 +264,9 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         /// <param name="e"></param>
         protected virtual void FluentDialog_Loaded(object sender, RoutedEventArgs e)
         {
+            // Force software rendering.
+            ((HwndSource)PresentationSource.FromVisual(this)).CompositionTarget.RenderMode = RenderMode.SoftwareOnly;
+
             // Update dialog layout
             UpdateButtonLayout();
             UpdateLayout();
@@ -267,6 +287,9 @@ namespace PSADT.UserInterface.Dialogs.Fluent
             // Start the timers if specified
             _persistTimer?.Start();
             _expiryTimer?.Start();
+
+            // Set the NoWait success flag as the caller may be waiting for it.
+            DialogManager.SetClientServerOperationSuccess();
         }
 
         /// <summary>
@@ -280,7 +303,7 @@ namespace PSADT.UserInterface.Dialogs.Fluent
             PositionWindow();
 
             // Add hook to prevent window movement
-            if (_hwndSource == null)
+            if (_hwndSource is null)
             {
                 WindowInteropHelper helper = new(this);
                 _hwndSource = HwndSource.FromHwnd(helper.Handle);
@@ -289,11 +312,32 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         }
 
         /// <summary>
+        /// Handles changes to system parameters that may affect window positioning, such as screen size or work area
+        /// updates.
+        /// </summary>
+        /// <remarks>This handler responds to changes in system properties like screen width, height, or
+        /// work area, ensuring the window remains correctly positioned when the display configuration
+        /// changes.</remarks>
+        /// <param name="sender">The source of the event, typically the SystemParameters class.</param>
+        /// <param name="e">An object that contains information about the property that changed, including its name.</param>
+        private void SystemParameters_StaticPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            // Reposition the window if screen dimensions or work area change.
+            if (e.PropertyName is (nameof(SystemParameters.PrimaryScreenWidth)) or (nameof(SystemParameters.PrimaryScreenHeight)) or (nameof(SystemParameters.WorkArea)))
+            {
+                PositionWindow();
+            }
+        }
+
+        /// <summary>
         /// Handles the timer tick event for persisting the dialog.
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        private void PersistTimer_Tick(object? sender, EventArgs e) => RestoreWindow();
+        private void PersistTimer_Tick(object? sender, EventArgs e)
+        {
+            RestoreWindow();
+        }
 
         /// <summary>
         /// Handles the request navigate event of the hyperlink.
@@ -303,13 +347,13 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         private void Hyperlink_RequestNavigate(object sender, RequestNavigateEventArgs e)
         {
             // Use ShellExecute to open the URL in the default browser/handler
-            Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
+            using Process? process = Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
             e.Handled = true;
         }
 
         /// <summary>
         /// Formats the message text with enhanced markdown support including hyperlinks, bold, italic, and accent colored.
-        /// Supports: [text](url), **bold**, *italic*, __bold__, _italic_, and colored quotes (> warning:, > info:, > error:, > success:).
+        /// Supports nested and combined formatting: [url], [accent], [bold], [italic] tags that can be combined for cumulative effects.
         /// </summary>
         /// <param name="textBlock"></param>
         /// <param name="message"></param>
@@ -322,84 +366,148 @@ namespace PSADT.UserInterface.Dialogs.Fluent
                 return;
             }
 
-            var lastPos = 0;
-            foreach (Match match in DialogTools.TextFormattingRegex.Matches(message))
+            // Use stack-based approach to handle nested/combined formatting
+            Stack<FormattingContext> formattingStack = new();
+            int lastPos = 0;
+
+            foreach (Match match in DialogManager.TextFormattingRegex.Matches(message))
             {
-                // Add text before the current match
+                // Add text before the current match with current formatting
                 if (match.Index > lastPos)
                 {
-                    textBlock.Inlines.Add(message.Substring(lastPos, match.Index - lastPos));
+                    string textContent = message.Substring(lastPos, match.Index - lastPos);
+                    AddFormattedText(textBlock, textContent, formattingStack);
                 }
 
-                // Process the matched element
-                ProcessMatch(textBlock, match);
+                // Process the matched tag
+                ProcessFormattingTag(textBlock, match, formattingStack);
                 lastPos = match.Index + match.Length;
             }
 
             // Add any remaining text after the last match
             if (lastPos < message.Length)
             {
-                textBlock.Inlines.Add(message.Substring(lastPos));
+                string remainingText = message.Substring(lastPos);
+                AddFormattedText(textBlock, remainingText, formattingStack);
             }
         }
 
         /// <summary>
-        /// Processes a regex match and adds the corresponding formatted text to the TextBlock.
+        /// Processes a formatting tag match and updates the formatting stack.
         /// </summary>
-        /// <param name="textBlock">The TextBlock to add the formatted text to.</param>
+        /// <param name="textBlock">The TextBlock to add content to.</param>
         /// <param name="match">The regex match to process.</param>
-        private void ProcessMatch(TextBlock textBlock, Match match)
+        /// <param name="formattingStack">The current formatting context stack.</param>
+        private void ProcessFormattingTag(TextBlock textBlock, Match match, Stack<FormattingContext> formattingStack)
         {
-            if (match.Groups["UrlLink"].Success)
+            if (match.Groups["UrlLinkSimple"].Success)
             {
-                ProcessUrlLink(textBlock, match.Groups["UrlLinkContent"].Value);
+                ProcessUrlLink(textBlock, match.Groups["UrlLinkSimpleContent"].Value, match.Groups["UrlLinkSimpleContent"].Value);
             }
-            else if (match.Groups["Accent"].Success)
+            else if (match.Groups["UrlLinkDescriptive"].Success)
             {
-                AddAccentText(textBlock, match.Groups["AccentText"].Value);
+                ProcessUrlLink(textBlock, match.Groups["UrlLinkUrl"].Value, match.Groups["UrlLinkDescription"].Value);
             }
-            else if (match.Groups["Bold"].Success)
+            else if (match.Groups["OpenAccent"].Success)
             {
-                AddBoldText(textBlock, match.Groups["BoldText"].Value);
+                FormattingContext newContext = GetCurrentFormattingContext(formattingStack).Clone();
+                newContext.IsAccent = true;
+                formattingStack.Push(newContext);
             }
-            else if (match.Groups["Italic"].Success)
+            else if (match.Groups["CloseAccent"].Success)
             {
-                AddItalicText(textBlock, match.Groups["ItalicText"].Value);
+                PopFormattingContext(formattingStack, ctx => ctx.IsAccent);
+            }
+            else if (match.Groups["OpenBold"].Success)
+            {
+                FormattingContext newContext = GetCurrentFormattingContext(formattingStack).Clone();
+                newContext.IsBold = true;
+                formattingStack.Push(newContext);
+            }
+            else if (match.Groups["CloseBold"].Success)
+            {
+                PopFormattingContext(formattingStack, ctx => ctx.IsBold);
+            }
+            else if (match.Groups["OpenItalic"].Success)
+            {
+                FormattingContext newContext = GetCurrentFormattingContext(formattingStack).Clone();
+                newContext.IsItalic = true;
+                formattingStack.Push(newContext);
+            }
+            else if (match.Groups["CloseItalic"].Success)
+            {
+                PopFormattingContext(formattingStack, ctx => ctx.IsItalic);
             }
         }
 
         /// <summary>
-        /// Adds accent-colored text to the TextBlock.
+        /// Gets the current formatting context from the stack.
         /// </summary>
-        /// <param name="textBlock">The TextBlock to add the text to.</param>
-        /// <param name="text">The text to add.</param>
-        private static void AddAccentText(TextBlock textBlock, string text)
+        /// <param name="formattingStack">The formatting context stack.</param>
+        /// <returns>The current formatting context.</returns>
+        private static FormattingContext GetCurrentFormattingContext(Stack<FormattingContext> formattingStack)
         {
-            Run accentRun = new(text) { FontWeight = FontWeights.Bold };
-            accentRun.SetResourceReference(ForegroundProperty, ThemeKeys.AccentTextFillColorPrimaryBrushKey);
-            textBlock.Inlines.Add(accentRun);
+            return formattingStack.Count > 0 ? formattingStack.Peek() : new();
         }
 
         /// <summary>
-        /// Adds bold text to the TextBlock.
+        /// Pops the most recent formatting context that matches the specified predicate.
         /// </summary>
-        /// <param name="textBlock">The TextBlock to add the text to.</param>
-        /// <param name="text">The text to add.</param>
-        private static void AddBoldText(TextBlock textBlock, string text) => textBlock.Inlines.Add(new Run(text) { FontWeight = FontWeights.Bold });
+        /// <param name="formattingStack">The formatting context stack.</param>
+        /// <param name="predicate">The condition to match for popping.</param>
+        private static void PopFormattingContext(Stack<FormattingContext> formattingStack, Func<FormattingContext, bool> predicate)
+        {
+            if (formattingStack.Count > 0 && predicate(formattingStack.Peek()))
+            {
+                _ = formattingStack.Pop();
+            }
+        }
 
         /// <summary>
-        /// Adds italicized text to the TextBlock.
+        /// Adds formatted text to the TextBlock based on the current formatting context.
         /// </summary>
-        /// <param name="textBlock">The TextBlock to add the text to.</param>
-        /// <param name="text">The text to add.</param>
-        private static void AddItalicText(TextBlock textBlock, string text) => textBlock.Inlines.Add(new Run(text) { FontStyle = FontStyles.Italic });
+        /// <param name="textBlock">The TextBlock to add text to.</param>
+        /// <param name="text">The text content to add.</param>
+        /// <param name="formattingStack">The current formatting context stack.</param>
+        private static void AddFormattedText(TextBlock textBlock, string text, Stack<FormattingContext> formattingStack)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return;
+            }
+
+            FormattingContext context = GetCurrentFormattingContext(formattingStack);
+            Run run = new(text);
+
+            // Apply formatting based on context
+            if (context.IsBold)
+            {
+                run.FontWeight = FontWeights.Bold;
+            }
+            if (context.IsItalic)
+            {
+                run.FontStyle = FontStyles.Italic;
+            }
+            if (context.IsAccent)
+            {
+                if (!context.IsBold) // Only set bold if not already bold
+                {
+                    run.FontWeight = FontWeights.Bold;
+                }
+                run.SetResourceReference(ForegroundProperty, ThemeKeys.AccentTextFillColorPrimaryBrushKey);
+            }
+
+            textBlock.Inlines.Add(run);
+        }
+
 
         /// <summary>
-        /// Creates a hyperlink with the specified URL.
+        /// Creates a hyperlink with the specified URL and display text.
         /// </summary>
-        /// <param name="textBlock"></param>
-        /// <param name="url"></param>
-        private void ProcessUrlLink(TextBlock textBlock, string url)
+        /// <param name="textBlock">The TextBlock to add the hyperlink to.</param>
+        /// <param name="url">The URL to navigate to when clicked.</param>
+        /// <param name="displayText">The text to display for the hyperlink.</param>
+        private void ProcessUrlLink(TextBlock textBlock, string url, string displayText)
         {
             // Ensure the URL has a scheme for Process.Start
             string navigateUrl = url;
@@ -413,9 +521,9 @@ namespace PSADT.UserInterface.Dialogs.Fluent
             }
 
             // Add the URL as a proper hyperlink
-            if (!AccountUtilities.CallerIsSystemInteractive && Uri.TryCreate(navigateUrl, UriKind.Absolute, out var uri))
+            if (!AccountUtilities.CallerIsSystemInteractive && Uri.TryCreate(navigateUrl, UriKind.Absolute, out Uri? uri))
             {
-                Hyperlink link = new(new Run(url))
+                Hyperlink link = new(new Run(displayText))
                 {
                     NavigateUri = uri,
                     ToolTip = $"Open link: {url}"
@@ -426,7 +534,7 @@ namespace PSADT.UserInterface.Dialogs.Fluent
             else
             {
                 // If it's not a valid URI, just add as plain text
-                textBlock.Inlines.Add(url);
+                textBlock.Inlines.Add(displayText);
             }
         }
 
@@ -434,7 +542,7 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         /// Sets the button to be styled with an accent color.
         /// </summary>
         /// <param name="button"></param>
-        protected void SetAccentButton(Button button)
+        protected static void SetAccentButton(Button button)
         {
             button.SetResourceReference(StyleProperty, ThemeKeys.AccentButtonStyleKey);
         }
@@ -443,7 +551,7 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         /// Sets the button to be the form cancel button.
         /// </summary>
         /// <param name="button"></param>
-        protected void SetCancelButton(Button button)
+        protected static void SetCancelButton(Button button)
         {
             button.IsCancel = true;
         }
@@ -452,7 +560,7 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         /// Sets the button to be the form default button.
         /// </summary>
         /// <param name="button"></param>
-        protected void SetDefaultButton(Button button)
+        protected static void SetDefaultButton(Button button)
         {
             button.IsDefault = true;
         }
@@ -462,7 +570,7 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         /// </summary>
         /// <param name="button"></param>
         /// <param name="text"></param>
-        protected void SetButtonContentWithAccelerator(Button button, string text)
+        protected static void SetButtonContentWithAccelerator(Button button, string text)
         {
             if (string.IsNullOrWhiteSpace(text))
             {
@@ -479,7 +587,10 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         /// <summary>
         /// Updates the Grid RowDefinition based on the current content.
         /// </summary>
-        protected void UpdateRowDefinition() => CenterPanelRow.Height = new(1, GridUnitType.Auto);
+        protected void UpdateRowDefinition()
+        {
+            CenterPanelRow.Height = new(1, GridUnitType.Auto);
+        }
 
         /// <summary>
         /// Converts a 32-bit integer representation of a color into a <see cref="Color"/> object.
@@ -489,7 +600,7 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         /// <returns>A <see cref="Color"/> object corresponding to the specified integer value.</returns>
         private static Color IntToColor(int color)
         {
-            var colorBytes = BitConverter.GetBytes(color);
+            byte[] colorBytes = BitConverter.GetBytes(color);
             return Color.FromArgb(colorBytes[3], colorBytes[2], colorBytes[1], colorBytes[0]);
         }
 
@@ -504,38 +615,65 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         private static BitmapSource GetIcon(string dialogIconPath)
         {
             // Try to get from cache first.
-            if (!_dialogIconCache.TryGetValue(dialogIconPath, out var bitmapSource))
+            if (!_dialogIconCache.TryGetValue(dialogIconPath, out BitmapSource? bitmapSource))
             {
-                // Nothing cached. If we have an icon, get the highest resolution frame.
-                if (Path.GetExtension(dialogIconPath).Equals(".ico", StringComparison.OrdinalIgnoreCase))
+                // Nothing cached. Determine whether it's base64 or a file path.
+                if (MiscUtilities.GetBase64StringBytes(dialogIconPath) is byte[] iconBytes)
                 {
-                    // Use IconBitmapDecoder to get the icon frame.
-                    var iconFrame = new IconBitmapDecoder(new Uri(dialogIconPath, UriKind.Absolute), BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad).Frames.OrderByDescending(f => f.PixelWidth * f.PixelHeight).First();
-
-                    // Make it shareable across threads
-                    if (iconFrame.CanFreeze)
+                    // Check for ICO magic bytes: 0x00 0x00 0x01 0x00 (reserved, reserved, type=icon, reserved)
+                    using MemoryStream memoryStream = new(iconBytes);
+                    if (iconBytes.Length >= 4 && iconBytes[0] == 0x00 && iconBytes[1] == 0x00 && iconBytes[2] == 0x01 && iconBytes[3] == 0x00)
                     {
-                        iconFrame.Freeze();
+                        BitmapFrame iconFrame = new IconBitmapDecoder(memoryStream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad).Frames.OrderByDescending(f => f.PixelWidth * f.PixelHeight).First();
+                        if (iconFrame.CanFreeze)
+                        {
+                            iconFrame.Freeze();
+                        }
+                        _dialogIconCache.Add(dialogIconPath, iconFrame);
+                        bitmapSource = iconFrame;
                     }
-                    _dialogIconCache.Add(dialogIconPath, iconFrame);
-                    bitmapSource = iconFrame;
+                    else
+                    {
+                        BitmapImage bitmapImage = new();
+                        bitmapImage.BeginInit();
+                        bitmapImage.CacheOption = BitmapCacheOption.OnLoad;
+                        bitmapImage.StreamSource = memoryStream;
+                        bitmapImage.EndInit();
+                        if (bitmapImage.CanFreeze)
+                        {
+                            bitmapImage.Freeze();
+                        }
+                        _dialogIconCache.Add(dialogIconPath, bitmapImage);
+                        bitmapSource = bitmapImage;
+                    }
                 }
                 else
                 {
-                    // Use BeginInit/EndInit pattern for better performance.
-                    BitmapImage bitmapImage = new();
-                    bitmapImage.BeginInit();
-                    bitmapImage.CacheOption = BitmapCacheOption.OnLoad;
-                    bitmapImage.UriSource = new(dialogIconPath, UriKind.Absolute);
-                    bitmapImage.EndInit();
-
-                    // Make it shareable across threads
-                    if (bitmapImage.CanFreeze)
+                    // If we have an icon, get the highest resolution frame.
+                    if (Path.GetExtension(dialogIconPath).Equals(".ico", StringComparison.OrdinalIgnoreCase))
                     {
-                        bitmapImage.Freeze();
+                        BitmapFrame iconFrame = new IconBitmapDecoder(new Uri(dialogIconPath, UriKind.Absolute), BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad).Frames.OrderByDescending(f => f.PixelWidth * f.PixelHeight).First();
+                        if (iconFrame.CanFreeze)
+                        {
+                            iconFrame.Freeze();
+                        }
+                        _dialogIconCache.Add(dialogIconPath, iconFrame);
+                        bitmapSource = iconFrame;
                     }
-                    _dialogIconCache.Add(dialogIconPath, bitmapImage);
-                    bitmapSource = bitmapImage;
+                    else
+                    {
+                        BitmapImage bitmapImage = new();
+                        bitmapImage.BeginInit();
+                        bitmapImage.CacheOption = BitmapCacheOption.OnLoad;
+                        bitmapImage.UriSource = new(dialogIconPath, UriKind.Absolute);
+                        bitmapImage.EndInit();
+                        if (bitmapImage.CanFreeze)
+                        {
+                            bitmapImage.Freeze();
+                        }
+                        _dialogIconCache.Add(dialogIconPath, bitmapImage);
+                        bitmapSource = bitmapImage;
+                    }
                 }
             }
             return bitmapSource;
@@ -546,7 +684,14 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         /// </summary>
         /// <remarks>This method updates both the dialog's window icon and any associated UI element
         /// displaying the application icon.</remarks>
-        private void SetDialogIcon() => Icon = AppIconImage.Source = _dialogBitmapCache[ThemeManager.Current.ActualApplicationTheme];
+        private void SetDialogIcon()
+        {
+            AppIconImage.Source = _dialogBitmapCache[ThemeManager.Current.ActualApplicationTheme];
+            if (_appTaskbarIcon is null)
+            {
+                Icon = AppIconImage.Source;
+            }
+        }
 
         /// <summary>
         /// Positions the window on the screen based on the specified dialog position.
@@ -627,8 +772,8 @@ namespace PSADT.UserInterface.Dialogs.Fluent
 
             // Adjust for workArea offset.
             string dialogPosName = _dialogPosition.ToString();
-            left -= _dialogPosition == DialogPosition.Default || dialogPosName.EndsWith("Right") ? 18 : dialogPosName.EndsWith("Left") ? -18 : 0;
-            top -= _dialogPosition == DialogPosition.Default || dialogPosName.StartsWith("Bottom") ? 14 : dialogPosName.StartsWith("Top") ? -14 : 0;
+            left -= _dialogPosition == DialogPosition.Default || dialogPosName.EndsWith("Right", StringComparison.Ordinal) ? 18 : dialogPosName.EndsWith("Left", StringComparison.Ordinal) ? -18 : 0;
+            top -= _dialogPosition == DialogPosition.Default || dialogPosName.StartsWith("Bottom", StringComparison.Ordinal) ? 14 : dialogPosName.StartsWith("Top", StringComparison.Ordinal) ? -14 : 0;
 
             // Set positions in DIPs.
             Left = _startingLeft = left;
@@ -694,18 +839,7 @@ namespace PSADT.UserInterface.Dialogs.Fluent
                     ActionButtons.ColumnDefinitions.Add(new ColumnDefinition { Width = new(1, GridUnitType.Star) });
                     Grid.SetColumn(visibleButtons[i], i);
                     Button button = (Button)visibleButtons[i];
-                    if (i == 0)
-                    {
-                        button.Margin = new(0, 0, 4, 0);
-                    }
-                    else if (i == visibleButtons.Count - 1)
-                    {
-                        button.Margin = new(4, 0, 0, 0);
-                    }
-                    else
-                    {
-                        button.Margin = new(4, 0, 4, 0);
-                    }
+                    button.Margin = i == 0 ? new(0, 0, 4, 0) : i == visibleButtons.Count - 1 ? new(4, 0, 0, 0) : new(4, 0, 4, 0);
                 }
             }
             else
@@ -733,7 +867,7 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         private void InitializeCountdown()
         {
             // Return early if there's no countdown to set.
-            if (null == _countdownTimer)
+            if (_countdownTimer is null)
             {
                 return;
             }
@@ -741,7 +875,10 @@ namespace PSADT.UserInterface.Dialogs.Fluent
             {
                 _countdownStopwatch.Start();
             }
-            _countdownTimer.Change(0, 1000);
+            if (!_countdownTimer.Change(0, 1000))
+            {
+                throw new InvalidOperationException("Failed to start countdown timer.");
+            }
         }
 
         /// <summary>
@@ -780,11 +917,15 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         /// Callback executed by the countdown timer every second. Decrements remaining time, updates display, and handles auto-action on timeout.
         /// </summary>
         /// <param name="state">Timer state object (not used).</param>
-        protected virtual void CountdownTimer_Tick(object? state) => Dispatcher.Invoke(UpdateCountdownDisplay);
+        protected virtual void CountdownTimer_Tick(object? state)
+        {
+            Dispatcher.Invoke(UpdateCountdownDisplay);
+        }
 
         /// <summary>
         /// The result of the dialog interaction.
         /// </summary>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1061:Do not hide base class methods", Justification = "The redefinition of this field is by design.")]
         public new virtual object DialogResult
         {
             get => _dialogResult;
@@ -808,12 +949,12 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         /// <summary>
         /// Whether this window has been disposed.
         /// </summary>
-        protected bool _disposed { get; private set; } = false;
+        protected bool Disposed { get; private set; }
 
         /// <summary>
         /// Whether this window is able to be closed.
         /// </summary>
-        private bool _canClose = false;
+        private bool _canClose;
 
         /// <summary>
         /// The specified position of the dialog.
@@ -823,7 +964,7 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         /// <summary>
         /// Whether the dialog is allowed to be moved.
         /// </summary>
-        private readonly bool _dialogAllowMove = false;
+        private readonly bool _dialogAllowMove;
 
         /// <summary>
         /// The countdown duration for the dialog.
@@ -879,12 +1020,17 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         private HwndSource? _hwndSource;
 
         /// <summary>
+        /// The application tray icon bitmap source, if AppTaskbarIconImage was specified.
+        /// </summary>
+        private readonly BitmapSource? _appTaskbarIcon;
+
+        /// <summary>
         /// A read-only dictionary that caches dialog icons for different application themes.
         /// </summary>
         /// <remarks>This dictionary maps <see cref="ApplicationTheme"/> values to their corresponding
         /// <see cref="BitmapSource"/> icons. It is intended to optimize access to preloaded icons for dialogs, ensuring
         /// consistent and efficient retrieval.</remarks>
-        private readonly ReadOnlyDictionary<ApplicationTheme, BitmapSource> _dialogBitmapCache; 
+        private readonly ReadOnlyDictionary<ApplicationTheme, BitmapSource> _dialogBitmapCache;
 
         /// <summary>
         /// Dialog icon cache for improved performance
@@ -911,23 +1057,24 @@ namespace PSADT.UserInterface.Dialogs.Fluent
         /// <param name="disposing"></param>
         protected virtual void Dispose(bool disposing)
         {
-            if (_disposed)
+            if (Disposed)
             {
                 return;
             }
             if (disposing)
             {
                 // Remove event handlers.
-                Loaded -= FluentDialog_Loaded;
+                SystemParameters.StaticPropertyChanged -= SystemParameters_StaticPropertyChanged;
                 SizeChanged -= FluentDialog_SizeChanged;
+                Loaded -= FluentDialog_Loaded;
 
                 // Remove timer event handlers if they exist.
-                if (_expiryTimer != null)
+                if (_expiryTimer is not null)
                 {
                     _expiryTimer.Tick -= (sender, e) => CloseDialog();
                     _expiryTimer.Stop();
                 }
-                if (_persistTimer != null)
+                if (_persistTimer is not null)
                 {
                     _persistTimer.Tick -= PersistTimer_Tick;
                     _persistTimer.Stop();
@@ -936,9 +1083,30 @@ namespace PSADT.UserInterface.Dialogs.Fluent
                 // Clean up resources.
                 ThemeManager.RemoveActualThemeChangedHandler(this, (_, _) => SetDialogIcon());
                 _hwndSource?.RemoveHook(WndProc);
+                _hwndSource?.Dispose();
                 _countdownTimer?.Dispose();
             }
-            _disposed = true;
+            Disposed = true;
+        }
+
+        /// <summary>
+        /// Represents the formatting context for nested text formatting.
+        /// </summary>
+        private sealed class FormattingContext
+        {
+            public bool IsAccent { get; set; }
+            public bool IsBold { get; set; }
+            public bool IsItalic { get; set; }
+
+            public FormattingContext Clone()
+            {
+                return new FormattingContext
+                {
+                    IsAccent = IsAccent,
+                    IsBold = IsBold,
+                    IsItalic = IsItalic
+                };
+            }
         }
     }
 }

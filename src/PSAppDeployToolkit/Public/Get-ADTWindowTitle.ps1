@@ -18,8 +18,8 @@ function Get-ADTWindowTitle
         - WindowTitle
         - WindowHandle
         - ParentProcess
-        - ParentProcessMainWindowHandle
         - ParentProcessId
+        - ParentProcessMainWindowHandle
 
         Function does not work in SYSTEM context unless launched with "psexec.exe -s -i" to run it as an interactive process under the SYSTEM account.
 
@@ -31,6 +31,12 @@ function Get-ADTWindowTitle
 
     .PARAMETER ParentProcess
         One or more process names of the application window to search for.
+
+    .PARAMETER ParentProcessId
+        One or more process ids of the application window to search for.
+
+    .PARAMETER ParentProcessMainWindowHandle
+        One more process main window handles of the application window to search for.
 
     .INPUTS
         None
@@ -45,8 +51,8 @@ function Get-ADTWindowTitle
         - WindowTitle
         - WindowHandle
         - ParentProcess
-        - ParentProcessMainWindowHandle
         - ParentProcessId
+        - ParentProcessMainWindowHandle
 
     .EXAMPLE
         Get-ADTWindowTitle -WindowTitle 'Microsoft Word'
@@ -70,7 +76,7 @@ function Get-ADTWindowTitle
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -90,7 +96,15 @@ function Get-ADTWindowTitle
 
         [Parameter(Mandatory = $false)]
         [ValidateNotNullOrEmpty()]
-        [System.String[]]$ParentProcess
+        [System.String[]]$ParentProcess,
+
+        [Parameter(Mandatory = $false)]
+        [ValidateNotNullOrEmpty()]
+        [System.Int32[]]$ParentProcessId,
+
+        [Parameter(Mandatory = $false)]
+        [ValidateNotNullOrEmpty()]
+        [System.IntPtr[]]$ParentProcessMainWindowHandle
     )
 
     begin
@@ -122,7 +136,7 @@ function Get-ADTWindowTitle
         {
             try
             {
-                return Invoke-ADTClientServerOperation -GetProcessWindowInfo -User $runAsActiveUser -Options ([PSADT.WindowManagement.WindowInfoOptions]::new($WindowTitle, $WindowHandle, $ParentProcess))
+                return Invoke-ADTClientServerOperation -GetProcessWindowInfo -User $runAsActiveUser -Options ([PSADT.WindowManagement.WindowInfoOptions]::new($WindowTitle, $WindowHandle, $ParentProcess, $ParentProcessId, $ParentProcessMainWindowHandle))
             }
             catch
             {

@@ -15,7 +15,7 @@ function Add-ADTEdgeExtension
 
         This enables Edge Extensions to be installed and managed like applications, enabling extensions to be pushed to specific devices or users alongside existing GPO/Intune extension policies.
 
-        This should not be used in conjunction with Edge Management Service which leverages the same registry key to configure Edge extensions.
+        This should not be used in conjunction with Edge Management Service or "Configure extension management settings" as configured via Group Policy or Intune as they leverage the same registry key to configure Edge extensions.
 
     .PARAMETER ExtensionID
         The ID of the extension to add.
@@ -24,7 +24,7 @@ function Add-ADTEdgeExtension
         The update URL of the extension. This is the URL where the extension will check for updates.
 
     .PARAMETER InstallationMode
-        The installation mode of the extension. Allowed values: blocked, allowed, removed, force_installed, normal_installed.
+        The installation mode of the extension. Allowed values: `blocked`, `allowed`, `removed`, `force_installed`, `normal_installed`.
 
     .PARAMETER MinimumVersionRequired
         The minimum version of the extension required for installation.
@@ -47,16 +47,18 @@ function Add-ADTEdgeExtension
     .NOTES
         An active ADT session is NOT required to use this function.
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
         https://psappdeploytoolkit.com/docs/reference/functions/Add-ADTEdgeExtension
     #>
 
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param
     (
         [Parameter(Mandatory = $true)]
@@ -112,7 +114,10 @@ function Add-ADTEdgeExtension
                     ConvertTo-Json -Compress
 
                 # Add the additional extension to the current values, then re-write the definition in the registry.
-                $null = Set-ADTRegistryKey -Key Microsoft.PowerShell.Core\Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Edge -Name ExtensionSettings -Value $extensionsSettings
+                if ($PSCmdlet.ShouldProcess("Edge Extension [$ExtensionID]", "Add extension with installation mode [$InstallationMode]"))
+                {
+                    $null = Set-ADTRegistryKey -Key Microsoft.PowerShell.Core\Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Edge -Name ExtensionSettings -Value $extensionsSettings
+                }
             }
             catch
             {

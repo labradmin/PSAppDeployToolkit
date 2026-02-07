@@ -50,14 +50,14 @@ function Show-ADTDialogBox
         Returns the text of the button that was clicked.
 
     .EXAMPLE
-        Show-ADTDialogBox -Title 'Installation Notice' -Text 'Installation will take approximately 30 minutes. Do you wish to proceed?' -Buttons 'OKCancel' -DefaultButton 'Second' -Icon 'Exclamation' -Timeout 600 -Topmost $false
+        Show-ADTDialogBox -Title 'Installation Notice' -Text 'Installation will take approximately 30 minutes. Do you wish to proceed?' -Buttons 'OKCancel' -DefaultButton 'Second' -Icon 'Exclamation' -Timeout 600 -NotTopMost
 
     .NOTES
         An active ADT session is NOT required to use this function.
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -82,7 +82,7 @@ function Show-ADTDialogBox
 
         [Parameter(Mandatory = $false)]
         [ValidateNotNullOrEmpty()]
-        [PSADT.UserInterface.Dialogs.DialogBoxIcon]$Icon = [PSADT.UserInterface.Dialogs.DialogBoxIcon]::None,
+        [PSADT.UserInterface.Dialogs.DialogBoxIcon]$Icon,
 
         [Parameter(Mandatory = $false)]
         [System.Management.Automation.SwitchParameter]$NoWait,
@@ -115,7 +115,7 @@ function Show-ADTDialogBox
             ))
         $paramDictionary.Add('Timeout', [System.Management.Automation.RuntimeDefinedParameter]::new(
                 'Timeout', [System.UInt32], $(
-                    [System.Management.Automation.ParameterAttribute]@{ Mandatory = $false; HelpMessage = 'Specifies how long to show the message prompt before aborting.' }
+                    [System.Management.Automation.ParameterAttribute]@{ Mandatory = $false; HelpMessage = 'Specifies how long (in seconds) to show the message prompt before aborting.' }
                     [System.Management.Automation.ValidateScriptAttribute]::new({
                             if ($_ -gt $adtConfig.UI.DefaultTimeout)
                             {
@@ -146,11 +146,11 @@ function Show-ADTDialogBox
         }
         $Timeout = if (!$PSBoundParameters.ContainsKey('Timeout'))
         {
-            [System.TimeSpan]::FromSeconds($adtConfig.UI.DefaultTimeout)
+            $adtConfig.UI.DefaultTimeout
         }
         else
         {
-            [System.TimeSpan]::FromSeconds($PSBoundParameters.Timeout)
+            $PSBoundParameters.Timeout
         }
     }
 
@@ -173,15 +173,20 @@ function Show-ADTDialogBox
             try
             {
                 # Instantiate dialog options as required.
-                [PSADT.UserInterface.DialogOptions.DialogBoxOptions]$dialogOptions = @{
+                $dialogOptions = @{
                     AppTitle = $Title
                     MessageText = $Text
                     DialogButtons = $Buttons
                     DialogDefaultButton = $DefaultButton
-                    DialogIcon = $Icon
                     DialogTopMost = !$NotTopMost
-                    DialogExpiryDuration = $Timeout
+                    DialogExpiryDuration = $Timeout * 1000
+                    DialogIcon = $Icon
                 }
+                if ($PSBoundParameters.ContainsKey('Icon'))
+                {
+                    $dialogOptions.Add('DialogIcon', $Icon)
+                }
+                [PSADT.UserInterface.DialogOptions.DialogBoxOptions]$dialogOptions = $dialogOptions
 
                 # If the NoWait parameter is specified, launch a new PowerShell session to show the prompt asynchronously.
                 if ($NoWait)

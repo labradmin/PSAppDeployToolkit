@@ -33,27 +33,27 @@ namespace PSADT.UserInterface.Dialogs.Classic
             // Initialise the form and reset the control order.
             // The designer tries to add its controls ahead of the base's.
             InitializeComponent();
-            this.SuspendLayout();
-            this.flowLayoutPanelBase.SuspendLayout();
-            this.flowLayoutPanelDialog.SuspendLayout();
+            SuspendLayout();
+            flowLayoutPanelBase.SuspendLayout();
+            flowLayoutPanelDialog.SuspendLayout();
 
             // Apply options to the form if we have any (i.e. not in the designer).
-            if (null != options)
+            if (options is not null)
             {
                 // Set up the picturebox.
-                SetPictureBox(this.pictureBanner, options);
+                SetPictureBox(pictureBanner, options);
 
                 // Set up the rest of the dialog controls.
                 UpdateProgressImpl(options.ProgressMessageText, options.ProgressDetailMessageText, options.ProgressPercentage, options.MessageAlignment);
             }
 
             // Resume the dialog now that we've applied any options.
-            this.flowLayoutPanelDialog.ResumeLayout(false);
-            this.flowLayoutPanelDialog.PerformLayout();
-            this.flowLayoutPanelBase.ResumeLayout(false);
-            this.flowLayoutPanelBase.PerformLayout();
-            this.ResumeLayout();
-            this.PerformLayout();
+            flowLayoutPanelDialog.ResumeLayout(false);
+            flowLayoutPanelDialog.PerformLayout();
+            flowLayoutPanelBase.ResumeLayout(false);
+            flowLayoutPanelBase.PerformLayout();
+            ResumeLayout();
+            PerformLayout();
             EnableDragMove(this);
         }
 
@@ -64,7 +64,11 @@ namespace PSADT.UserInterface.Dialogs.Classic
         /// <param name="progressMessageDetail"></param>
         /// <param name="progressPercentage"></param>
         /// <param name="messageAlignment"></param>
-        public void UpdateProgress(string? progressMessage = null, string? progressMessageDetail = null, double? progressPercentage = null, DialogMessageAlignment? messageAlignment = null) => this.Invoke(() => UpdateProgressImpl(progressMessage, progressMessageDetail, progressPercentage, messageAlignment));
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0058:Expression value is never used", Justification = "We can't suppress a mix of object/void returns.")]
+        public void UpdateProgress(string? progressMessage = null, string? progressMessageDetail = null, double? progressPercentage = null, DialogMessageAlignment? messageAlignment = null)
+        {
+            Invoke(() => UpdateProgressImpl(progressMessage, progressMessageDetail, progressPercentage, messageAlignment));
+        }
 
         /// <summary>
         /// Updates the progress dialog with the specified messages and percentage complete.
@@ -78,36 +82,36 @@ namespace PSADT.UserInterface.Dialogs.Classic
             // Update the progress message.
             if (!string.IsNullOrWhiteSpace(progressMessage))
             {
-                this.labelMessage.Text = StripFormattingTags(progressMessage!);
+                labelMessage.Text = StripFormattingTags(progressMessage!);
             }
 
             // Update the detail message.
             if (!string.IsNullOrWhiteSpace(progressMessageDetail))
             {
-                this.labelDetail.Text = StripFormattingTags(progressMessageDetail!);
+                labelDetail.Text = StripFormattingTags(progressMessageDetail!);
             }
 
             // Update the message alignment.
-            if ((null != messageAlignment) && Enum.TryParse<ContentAlignment>($"Top{messageAlignment}", out var alignment))
+            if ((messageAlignment is not null) && Enum.TryParse($"Top{messageAlignment}", out ContentAlignment alignment))
             {
-                this.labelMessage.TextAlign = alignment;
-                this.labelDetail.TextAlign = alignment;
+                labelMessage.TextAlign = alignment;
+                labelDetail.TextAlign = alignment;
             }
             else
             {
-                this.labelMessage.TextAlign = ContentAlignment.TopCenter;
-                this.labelDetail.TextAlign = ContentAlignment.TopCenter;
+                labelMessage.TextAlign = ContentAlignment.TopCenter;
+                labelDetail.TextAlign = ContentAlignment.TopCenter;
             }
 
             // Update the progress percentage.
-            if (null != progressPercentage)
+            if (progressPercentage is not null)
             {
-                this.progressBar.Style = ProgressBarStyle.Blocks;
-                this.progressBar.Value = (int)progressPercentage.Value;
+                progressBar.Style = ProgressBarStyle.Blocks;
+                progressBar.Value = (int)progressPercentage.Value;
             }
             else
             {
-                this.progressBar.Style = ProgressBarStyle.Marquee;
+                progressBar.Style = ProgressBarStyle.Marquee;
             }
         }
 
@@ -134,8 +138,8 @@ namespace PSADT.UserInterface.Dialogs.Classic
         {
             if (e.Button == MouseButtons.Left)
             {
-                User32.ReleaseCapture();
-                User32.SendMessage((HWND)this.Handle, WINDOW_MESSAGE.WM_NCLBUTTONDOWN, (nuint)WM_NCHITTEST.HTCAPTION, IntPtr.Zero);
+                _ = User32.ReleaseCapture();
+                _ = User32.SendMessage((HWND)Handle, WINDOW_MESSAGE.WM_NCLBUTTONDOWN, (nuint)WM_NCHITTEST.HTCAPTION, IntPtr.Zero);
             }
         }
     }

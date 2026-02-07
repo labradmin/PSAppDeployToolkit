@@ -61,21 +61,23 @@ function Set-ADTShortcut
     .NOTES
         An active ADT session is NOT required to use this function.
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
         https://psappdeploytoolkit.com/docs/reference/functions/Set-ADTShortcut
     #>
 
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param
     (
         [Parameter(Mandatory = $true, ValueFromPipeline = $true, ValueFromPipelineByPropertyName = $true, Position = 0)]
         [ValidateScript({
-                if (!(Test-Path -LiteralPath $_ -PathType Leaf) -or (![System.IO.Path]::GetExtension($_).ToLower().Equals('.lnk') -and ![System.IO.Path]::GetExtension($_).ToLower().Equals('.url')))
+                if (!(Test-Path -LiteralPath $_ -PathType Leaf) -or (![System.IO.Path]::GetExtension($_).ToLowerInvariant().Equals('.lnk') -and ![System.IO.Path]::GetExtension($_).ToLowerInvariant().Equals('.url')))
                 {
                     $PSCmdlet.ThrowTerminatingError((New-ADTValidateScriptErrorRecord -ParameterName Path -ProvidedValue $_ -ExceptionMessage 'The specified path does not exist or does not have the correct extension.'))
                 }
@@ -128,6 +130,10 @@ function Set-ADTShortcut
     process
     {
         Write-ADTLogEntry -Message "Changing shortcut [$LiteralPath]."
+        if (!$PSCmdlet.ShouldProcess($LiteralPath, 'Modify shortcut'))
+        {
+            return
+        }
         try
         {
             try
@@ -148,7 +154,7 @@ function Set-ADTShortcut
                             }
                         }
                     }
-                    [System.IO.File]::WriteAllLines($LiteralPath, $URLFile, [System.Text.UTF8Encoding]::new($false))
+                    [System.IO.File]::WriteAllLines($LiteralPath, $URLFile, [System.Text.UTF8Encoding]::new($false, $true))
                 }
                 else
                 {
@@ -188,7 +194,7 @@ function Set-ADTShortcut
                     }
 
                     # Handle icon, starting with retrieval previous value and split the path from the index.
-                    $TempIconLocation, $TempIconIndex = $shortcut.IconLocation.Split(',')
+                    $TempIconLocation, $TempIconIndex = $shortcut.IconLocation.Split(',').Trim()
                     $newIconLocation = if ($IconLocation)
                     {
                         # New icon path was specified. Check whether new icon index was also specified.

@@ -63,21 +63,23 @@ function New-ADTShortcut
 
         Url shortcuts only support TargetPath, IconLocation and IconIndex. Other parameters are ignored.
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
         https://psappdeploytoolkit.com/docs/reference/functions/New-ADTShortcut
     #>
 
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param
     (
         [Parameter(Mandatory = $true, Position = 0)]
         [ValidateScript({
-                if (![System.IO.Path]::GetExtension($_).ToLower().Equals('.lnk') -and ![System.IO.Path]::GetExtension($_).ToLower().Equals('.url'))
+                if (![System.IO.Path]::GetExtension($_).ToLowerInvariant().Equals('.lnk') -and ![System.IO.Path]::GetExtension($_).ToLowerInvariant().Equals('.url'))
                 {
                     $PSCmdlet.ThrowTerminatingError((New-ADTValidateScriptErrorRecord -ParameterName Path -ProvidedValue $_ -ExceptionMessage 'The specified path does not have the correct extension.'))
                 }
@@ -192,6 +194,10 @@ function New-ADTShortcut
 
                 # Build out the shortcut.
                 Write-ADTLogEntry -Message "Creating shortcut [$FullPath]."
+                if (!$PSCmdlet.ShouldProcess($FullPath, "Create shortcut to [$TargetPath]"))
+                {
+                    return
+                }
                 if ([System.IO.Path]::GetExtension($LiteralPath) -eq '.url')
                 {
                     [String[]]$URLFile = '[InternetShortcut]', "URL=$TargetPath"
@@ -203,7 +209,7 @@ function New-ADTShortcut
                     {
                         $URLFile += "IconFile=$IconLocation"
                     }
-                    [System.IO.File]::WriteAllLines($FullPath, $URLFile, [System.Text.UTF8Encoding]::new($false))
+                    [System.IO.File]::WriteAllLines($FullPath, $URLFile, [System.Text.UTF8Encoding]::new($false, $true))
                 }
                 else
                 {

@@ -36,6 +36,18 @@ function Private:Import-ADTConfig
                 $asset.Value | & $MyInvocation.MyCommand; continue
             }
 
+            # Skip if the value is null (some are optional).
+            if ($asset.Name -eq 'TaskbarIcon' -and [System.String]::IsNullOrWhiteSpace($asset.Value))
+            {
+                continue
+            }
+
+            # Skip if the path is a Base64 string.
+            if ($null -ne [PSADT.Utilities.MiscUtilities]::GetBase64StringBytes($asset.Value))
+            {
+                continue
+            }
+
             # Skip if the path is fully qualified.
             if ([System.IO.Path]::IsPathRooted($asset.Value))
             {
@@ -69,23 +81,6 @@ function Private:Import-ADTConfig
         }
     }
 
-    # Internal filter to expand variables.
-    filter Expand-ADTVariablesInConfig
-    {
-        # Go recursive if we've received a hashtable, otherwise just update the values.
-        foreach ($section in $($_.GetEnumerator()))
-        {
-            if ($section.Value -is [System.String])
-            {
-                $_.($section.Key) = $ExecutionContext.InvokeCommand.ExpandString($section.Value)
-            }
-            elseif ($section.Value -is [System.Collections.Hashtable])
-            {
-                $section.Value | & $MyInvocation.MyCommand
-            }
-        }
-    }
-
     # Import the config from disk.
     $config = Import-ADTModuleDataFile @PSBoundParameters -FileName config.psd1
 
@@ -111,7 +106,7 @@ function Private:Import-ADTConfig
     }
 
     # Expand out environment variables and asset file paths.
-    ($adtEnv = Get-ADTEnvironmentTable).GetEnumerator() | & { process { New-Variable -Name $_.Key -Value $_.Value -Option Constant } end { $config | Expand-ADTVariablesInConfig } }
+    ($adtEnv = Get-ADTEnvironmentTable).GetEnumerator() | & { process { New-Variable -Name $_.Key -Value $_.Value -Option Constant } end { Expand-ADTVariablesInHashtable -Hashtable $config -SessionState $ExecutionContext.SessionState } }
     $config.Assets | Update-ADTAssetFilePath
 
     # Change paths to user accessible ones if user isn't an admin.

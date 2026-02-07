@@ -2,12 +2,16 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
+using Microsoft.Win32.SafeHandles;
 using PSADT.LibraryInterfaces;
+using PSADT.LibraryInterfaces.SafeHandles;
 using PSADT.SafeHandles;
 using Windows.Win32;
+using Windows.Win32.Foundation;
 using Windows.Win32.Security;
 using Windows.Win32.Security.Authorization;
 using Windows.Win32.Storage.FileSystem;
@@ -19,38 +23,6 @@ namespace PSADT.FileSystem
     /// </summary>
     public static class FileSystemUtilities
     {
-        /// <summary>
-        /// Returns a lookup table for NT paths to drive letters.
-        /// </summary>
-        /// <returns></returns>
-        internal static ReadOnlyDictionary<string, string> GetNtPathLookupTable()
-        {
-            var lookupTable = new Dictionary<string, string> { { @"\Device\Mup", @"\" } };
-            Span<char> targetPath = stackalloc char[(int)PInvoke.MAX_PATH];
-            for (char drive = 'A'; drive <= 'Z'; drive++)
-            {
-                var driveLetter = drive + ":";
-                try
-                {
-                    Kernel32.QueryDosDevice(driveLetter, targetPath);
-                }
-                catch
-                {
-                    continue;
-                }
-                foreach (var path in targetPath.ToString().Trim('\0').Trim().Split('\0'))
-                {
-                    var ntPath = path.Trim();
-                    if (ntPath.Length > 0 && !lookupTable.ContainsKey(ntPath))
-                    {
-                        lookupTable.Add(ntPath, driveLetter);
-                    }
-                }
-                targetPath.Clear();
-            }
-            return new(lookupTable);
-        }
-
         /// <summary>
         /// Determines whether the specified file path is valid.
         /// </summary>
@@ -89,11 +61,7 @@ namespace PSADT.FileSystem
                 {
                     p++;
                 }
-                if (p < input.Length && input[p] == '"')
-                {
-                    return false;
-                }
-                return true;
+                return p >= input.Length || input[p] != '"';
             }
 
             // Check for DOS drive path (starts with letter:\ or letter:/).
@@ -103,11 +71,7 @@ namespace PSADT.FileSystem
             }
 
             // Check for POSIX path (starts with /letter/ where letter is a drive letter).
-            if (position + 2 < input.Length && input[position] == '/' && char.IsLetter(input[position + 1]) && input[position + 2] == '/')
-            {
-                return true;
-            }
-            return false;
+            return position + 2 < input.Length && input[position] == '/' && char.IsLetter(input[position + 1]) && input[position + 2] == '/';
         }
 
         /// <summary>
@@ -119,7 +83,7 @@ namespace PSADT.FileSystem
         public static bool TestFileAccess(FileInfo path, FileSystemRights desiredAccess = FileSystemRights.ReadAndExecute)
         {
             // Validate the input path.
-            if (null == path)
+            if (path is null)
             {
                 throw new ArgumentNullException(nameof(path));
             }
@@ -131,7 +95,7 @@ namespace PSADT.FileSystem
             }
 
             // Set up the required flags for CreateFile, then see if we can open the file.
-            var dwShareMode = FILE_SHARE_MODE.FILE_SHARE_NONE;
+            FILE_SHARE_MODE dwShareMode = FILE_SHARE_MODE.FILE_SHARE_NONE;
             if ((desiredAccess & FileSystemRights.Read) == FileSystemRights.Read)
             {
                 dwShareMode |= FILE_SHARE_MODE.FILE_SHARE_READ;
@@ -146,16 +110,13 @@ namespace PSADT.FileSystem
             }
             try
             {
-                using var hFile = Kernel32.CreateFile(path.FullName, desiredAccess, dwShareMode, null, FILE_CREATION_DISPOSITION.OPEN_EXISTING, FILE_FLAGS_AND_ATTRIBUTES.FILE_ATTRIBUTE_NORMAL);
-                if (hFile.IsInvalid)
-                {
-                    return false;
-                }
-                return true;
+                using SafeFileHandle hFile = Kernel32.CreateFile(path.FullName, desiredAccess, dwShareMode, null, FILE_CREATION_DISPOSITION.OPEN_EXISTING, FILE_FLAGS_AND_ATTRIBUTES.FILE_ATTRIBUTE_NORMAL);
+                return !hFile.IsInvalid;
             }
             catch
             {
                 return false;
+                throw;
             }
         }
 
@@ -171,7 +132,7 @@ namespace PSADT.FileSystem
         /// <param name="desiredAccessMask">The access rights to check, specified as a combination of <see cref="FileSystemRights"/> flags.</param>
         /// <returns><see langword="true"/> if the specified SID has the desired access rights to the file or directory;
         /// otherwise, <see langword="false"/>.</returns>
-        public static bool TestEffectiveAccess(string path, SecurityIdentifier sid, FileSystemRights desiredAccessMask)
+        public static bool TestEffectiveAccess(FileSystemInfo path, SecurityIdentifier sid, FileSystemRights desiredAccessMask)
         {
             return (GetEffectiveAccess(path, sid, desiredAccessMask) & desiredAccessMask) == desiredAccessMask;
         }
@@ -186,10 +147,10 @@ namespace PSADT.FileSystem
         /// <param name="path">The file or directory path to check access for. This cannot be null or empty.</param>
         /// <param name="token">The security token representing the user or process whose access is being tested. This cannot be null.</param>
         /// <param name="desiredAccessMask">The access rights to test, specified as a combination of <see
-        /// cref="System.Security.AccessControl.FileSystemRights"/> flags.</param>
+        /// cref="FileSystemRights"/> flags.</param>
         /// <returns><see langword="true"/> if the specified token has all the requested access rights to the path; otherwise,
         /// <see langword="false"/>.</returns>
-        public static bool TestEffectiveAccess(string path, SafeHandle token, FileSystemRights desiredAccessMask)
+        public static bool TestEffectiveAccess(FileSystemInfo path, SafeHandle token, FileSystemRights desiredAccessMask)
         {
             return (GetEffectiveAccess(path, token, desiredAccessMask) & desiredAccessMask) == desiredAccessMask;
         }
@@ -207,15 +168,19 @@ namespace PSADT.FileSystem
         /// <param name="desiredAccessMask">The desired access mask specifying the access rights to evaluate.</param>
         /// <returns>A <see cref="FileSystemRights"/> value representing the effective access rights for the specified SID on the
         /// given path.</returns>
-        public static FileSystemRights GetEffectiveAccess(string path, SecurityIdentifier sid, FileSystemRights desiredAccessMask)
+        public static FileSystemRights GetEffectiveAccess(FileSystemInfo path, SecurityIdentifier sid, FileSystemRights desiredAccessMask)
         {
+            if (path is null)
+            {
+                throw new ArgumentNullException(nameof(path), "Path cannot be null.");
+            }
             if (sid is null)
             {
                 throw new ArgumentNullException(nameof(sid), "SecurityIdentifier cannot be null.");
             }
             byte[] sidBytes = new byte[sid.BinaryLength]; sid.GetBinaryForm(sidBytes, 0);
-            using var pSID = SafePinnedGCHandle.Alloc(sidBytes);
-            return GetEffectiveAccess(path, pSID, desiredAccessMask, TokenType.SID);
+            using SafePinnedGCHandle pSID = SafePinnedGCHandle.Alloc(sidBytes);
+            return GetEffectiveAccess(path, pSID, desiredAccessMask, AdvApi32.AuthzInitializeContextFromSid);
         }
 
         /// <summary>
@@ -233,13 +198,100 @@ namespace PSADT.FileSystem
         /// <returns>The effective access rights, represented as a <see cref="FileSystemRights"/> value, that the specified token
         /// has for the given path.</returns>
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="token"/> is null or invalid.</exception>
-        public static FileSystemRights GetEffectiveAccess(string path, SafeHandle token, FileSystemRights desiredAccessMask)
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0046:Convert to conditional expression", Justification = "Enforcing this rule just makes a mess.")]
+        public static FileSystemRights GetEffectiveAccess(FileSystemInfo path, SafeHandle token, FileSystemRights desiredAccessMask)
         {
+            if (path is null)
+            {
+                throw new ArgumentNullException(nameof(path), "Path cannot be null.");
+            }
             if (token is null || token.IsInvalid)
             {
                 throw new ArgumentNullException(nameof(token), "Token cannot be null or invalid.");
             }
-            return GetEffectiveAccess(path, token, desiredAccessMask, TokenType.UserToken);
+            return GetEffectiveAccess(path, token, desiredAccessMask, AdvApi32.AuthzInitializeContextFromToken);
+        }
+
+        /// <summary>
+        /// Resets the permissions for the specified directory path, enabling inheritance and propagating inheritable
+        /// permissions to all child objects.
+        /// </summary>
+        /// <remarks>This method performs the following actions: <list type="bullet"> <item>Enables
+        /// inheritance for the specified directory by setting an empty Discretionary Access Control List (DACL).</item>
+        /// <item>Propagates inheritable permissions from the directory to all child objects, effectively replacing
+        /// existing child object permissions with the inheritable entries.</item> </list> Use this method to restore
+        /// default permission inheritance behavior for a directory and its contents.</remarks>
+        /// <param name="path">The absolute path of the directory for which permissions will be reset. The path must exist and cannot be
+        /// null, empty, or whitespace.</param>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="path"/> is null, empty, or consists only of whitespace.</exception>
+        /// <exception cref="DirectoryNotFoundException">Thrown if the directory specified by <paramref name="path"/> does not exist.</exception>
+        public static void ResetPermissionsForPath(string path)
+        {
+            // Validate the input path.
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                throw new ArgumentNullException(nameof(path));
+            }
+
+            // Validate that the path exists.
+            if (!Directory.Exists(path))
+            {
+                throw new DirectoryNotFoundException($"The specified path does not exist: {path}");
+            }
+
+            // Define the flags for setting and getting security information.
+            OBJECT_SECURITY_INFORMATION getSiFlags = OBJECT_SECURITY_INFORMATION.DACL_SECURITY_INFORMATION;
+            OBJECT_SECURITY_INFORMATION setSiFlags = getSiFlags | OBJECT_SECURITY_INFORMATION.UNPROTECTED_DACL_SECURITY_INFORMATION;
+
+            // Create an empty ACL for the purpose of enabling inheritance, then set it on the path.
+            _ = AdvApi32.InitializeAcl(out LocalFreeSafeHandle pEmptyAcl, (uint)Marshal.SizeOf<ACL>(), ACE_REVISION.ACL_REVISION);
+            using (pEmptyAcl)
+            {
+                _ = AdvApi32.SetNamedSecurityInfo(path, SE_OBJECT_TYPE.SE_FILE_OBJECT, setSiFlags, null, null, pEmptyAcl, null);
+            }
+
+            // Retrieve the set security descriptor for the path and reapply it to all child objects. This is the same as the
+            // "Replace all child object permission entries with inheritable permission entries from this object" checkbox.
+            _ = AdvApi32.GetNamedSecurityInfo(path, SE_OBJECT_TYPE.SE_FILE_OBJECT, getSiFlags, out SafeNoReleaseHandle? ppsidOwner, out SafeNoReleaseHandle? ppsidGroup, out LocalFreeSafeHandle? ppDacl, out LocalFreeSafeHandle? ppSacl, out LocalFreeSafeHandle ppSecurityDescriptor);
+            using (ppSecurityDescriptor)
+            using (ppsidOwner)
+            using (ppsidGroup)
+            using (ppDacl)
+            using (ppSacl)
+            {
+                _ = AdvApi32.TreeResetNamedSecurityInfo(path, SE_OBJECT_TYPE.SE_FILE_OBJECT, setSiFlags, ppsidOwner, ppsidGroup, ppDacl, ppSacl, false, null, PROG_INVOKE_SETTING.ProgressInvokeNever);
+            }
+        }
+
+        /// <summary>
+        /// Returns a lookup table for NT paths to drive letters.
+        /// </summary>
+        /// <returns></returns>
+        internal static ReadOnlyDictionary<string, string> MakeNtPathLookupTable()
+        {
+            Dictionary<string, string> lookupTable = new() { { @"\Device\Mup", @"\" } };
+            Span<char> targetPath = stackalloc char[1024];
+            foreach (string driveLetter in Environment.GetLogicalDrives().Select(static l => l.TrimEnd('\\')))
+            {
+                try
+                {
+                    _ = Kernel32.QueryDosDevice(driveLetter, targetPath);
+                }
+                catch
+                {
+                    continue;
+                    throw;
+                }
+                foreach (string path in targetPath.ToString().Split(['\0'], StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (path.Length > 0 && !lookupTable.ContainsKey(path))
+                    {
+                        lookupTable.Add(path, driveLetter);
+                    }
+                }
+                targetPath.Clear();
+            }
+            return new(lookupTable);
         }
 
         /// <summary>
@@ -250,26 +302,32 @@ namespace PSADT.FileSystem
         /// determined based on the discretionary access control list (DACL) and the specified desired access
         /// mask.</remarks>
         /// <param name="path">The full path to the file or directory for which to evaluate access rights.</param>
-        /// <param name="sid">The security identifier (SID) of the user or group whose access rights are being evaluated.</param>
+        /// <param name="token">A valid security token representing the user or group for which to evaluate access rights. This cannot be
+        /// null or invalid.</param>
         /// <param name="desiredAccessMask">The desired access mask specifying the access rights to evaluate.</param>
+        /// <param name="AuthzInitializeContext">A callback function used to initialize the AuthZ client context for access evaluation. This function is
+        /// invoked with the provided token and resource manager.</param>
         /// <returns>The effective access rights, represented as a <see cref="FileSystemRights"/> value, that the specified SID
         /// has on the file or directory.</returns>
-        private static FileSystemRights GetEffectiveAccess(string path, SafeHandle token, FileSystemRights desiredAccessMask, TokenType tokenType)
+        /// <exception cref="DirectoryNotFoundException">Thrown if the specified path refers to a directory that does not exist.</exception>
+        /// <exception cref="FileNotFoundException">Thrown if the specified path refers to a file that does not exist.</exception>
+        private static FileSystemRights GetEffectiveAccess(FileSystemInfo path, SafeHandle token, FileSystemRights desiredAccessMask, AuthzInitializeContext AuthzInitializeContext)
         {
-            // Validate the input path.
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                throw new ArgumentNullException(nameof(path));
-            }
-
             // Validate that the path exists.
-            if (!File.Exists(path) && !Directory.Exists(path))
+            if (!path.Exists)
             {
-                throw new FileNotFoundException($"The specified path does not exist: {path}");
+                if (path is DirectoryInfo)
+                {
+                    throw new DirectoryNotFoundException($"The specified directory does not exist: {path}");
+                }
+                else
+                {
+                    throw new FileNotFoundException($"The specified file does not exist: {path}");
+                }
             }
 
             // Retrieve the security descriptor for the file.
-            AdvApi32.GetNamedSecurityInfo(path, SE_OBJECT_TYPE.SE_FILE_OBJECT, OBJECT_SECURITY_INFORMATION.DACL_SECURITY_INFORMATION | OBJECT_SECURITY_INFORMATION.OWNER_SECURITY_INFORMATION | OBJECT_SECURITY_INFORMATION.GROUP_SECURITY_INFORMATION, out var ppsidOwner, out var ppsidGroup, out var ppDacl, out var ppSacl, out var ppSecurityDescriptor);
+            _ = AdvApi32.GetNamedSecurityInfo(path.FullName, SE_OBJECT_TYPE.SE_FILE_OBJECT, OBJECT_SECURITY_INFORMATION.DACL_SECURITY_INFORMATION | OBJECT_SECURITY_INFORMATION.OWNER_SECURITY_INFORMATION | OBJECT_SECURITY_INFORMATION.GROUP_SECURITY_INFORMATION, out SafeNoReleaseHandle? ppsidOwner, out SafeNoReleaseHandle? ppsidGroup, out LocalFreeSafeHandle? ppDacl, out LocalFreeSafeHandle? ppSacl, out LocalFreeSafeHandle ppSecurityDescriptor);
             using (ppSecurityDescriptor)
             using (ppsidOwner)
             using (ppsidGroup)
@@ -277,58 +335,28 @@ namespace PSADT.FileSystem
             using (ppSacl)
             {
                 // Initialize the AuthZ resource manager and client context.
-                AdvApi32.AuthzInitializeResourceManager(AUTHZ_RESOURCE_MANAGER_FLAGS.AUTHZ_RM_FLAG_NO_AUDIT, null, null, null, "PS-Authz", out var hAuthzResourceManager);
+                _ = AdvApi32.AuthzInitializeResourceManager(AUTHZ_RESOURCE_MANAGER_FLAGS.AUTHZ_RM_FLAG_NO_AUDIT, null, null, null, "PS-Authz", out AuthzFreeResourceManagerSafeHandle hAuthzResourceManager);
                 using (hAuthzResourceManager)
                 {
                     // Initialize the AuthZ client context.
-                    AuthzFreeContextSafeHandle phAuthzClientContext;
-                    switch (tokenType)
-                    {
-                        case TokenType.SID:
-                            AdvApi32.AuthzInitializeContextFromSid(0, token, hAuthzResourceManager, 0, default, IntPtr.Zero, out phAuthzClientContext);
-                            break;
-                        case TokenType.UserToken:
-                            AdvApi32.AuthzInitializeContextFromToken(0, token, hAuthzResourceManager, 0, default, IntPtr.Zero, out phAuthzClientContext);
-                            break;
-                        default:
-                            throw new ArgumentException("Invalid token type specified.", nameof(tokenType));
-                    }
-                    using (var grantedAccessMask = SafeHGlobalHandle.Alloc(sizeof(uint)))
-                    using (var error = SafeHGlobalHandle.Alloc(sizeof(uint)))
+                    _ = AuthzInitializeContext(0, token, hAuthzResourceManager, null, default, IntPtr.Zero, out AuthzFreeContextSafeHandle phAuthzClientContext);
                     using (phAuthzClientContext)
                     {
-                        bool grantedAccessMaskAddRef = false;
-                        bool errorAddRef = false;
-                        try
+                        // Prepare the access request and reply structures.
+                        AUTHZ_ACCESS_REQUEST req = new() { DesiredAccess = (uint)desiredAccessMask };
+                        AUTHZ_ACCESS_REPLY reply = new() { ResultListLength = 1 };
+                        uint grantedAccessMask, error;
+                        unsafe
                         {
-                            // Prepare the access request and reply structures.
-                            var req = new AUTHZ_ACCESS_REQUEST { DesiredAccess = (uint)desiredAccessMask };
-                            var reply = new AUTHZ_ACCESS_REPLY { ResultListLength = 1 };
-                            unsafe
-                            {
-                                grantedAccessMask.DangerousAddRef(ref grantedAccessMaskAddRef);
-                                reply.GrantedAccessMask = (uint*)grantedAccessMask.DangerousGetHandle();
-                                error.DangerousAddRef(ref errorAddRef);
-                                reply.Error = (uint*)error.DangerousGetHandle();
-                            }
-
-                            // Perform the access check.
-                            AdvApi32.AuthzAccessCheck(0, phAuthzClientContext, in req, null, ppSecurityDescriptor, null, ref reply, out var phAccessCheckResults);
-                            using (phAccessCheckResults)
-                            {
-                                return (FileSystemRights)grantedAccessMask.ReadInt32();
-                            }
+                            reply.GrantedAccessMask = &grantedAccessMask;
+                            reply.Error = &error;
                         }
-                        finally
+
+                        // Perform the access check.
+                        _ = AdvApi32.AuthzAccessCheck(0, phAuthzClientContext, in req, null, ppSecurityDescriptor, null, ref reply, out AuthzFreeHandleSafeHandle phAccessCheckResults);
+                        using (phAccessCheckResults)
                         {
-                            if (grantedAccessMaskAddRef)
-                            {
-                                grantedAccessMask.DangerousRelease();
-                            }
-                            if (errorAddRef)
-                            {
-                                error.DangerousRelease();
-                            }
+                            return (FileSystemRights)grantedAccessMask;
                         }
                     }
                 }
@@ -336,14 +364,24 @@ namespace PSADT.FileSystem
         }
 
         /// <summary>
-        /// Represents the types of tokens that can be safely handled within the system.
+        /// Represents a callback method that initializes an authorization context for use with the Authz API.
         /// </summary>
-        /// <remarks>This enumeration defines the specific categories of tokens, such as security
-        /// identifiers (SID)  and user tokens, that are used in the context of secure operations.</remarks>
-        private enum TokenType
-        {
-            SID,
-            UserToken,
-        }
+        /// <remarks>This delegate is typically used to customize the initialization of authorization
+        /// contexts in advanced scenarios, such as when integrating with the Windows Authz API. The caller is
+        /// responsible for ensuring that all handles provided remain valid for the duration of the callback.</remarks>
+        /// <param name="Flags">A set of flags that specify options for context initialization. The value must be a valid combination of
+        /// AUTHZ_CONTEXT_FLAGS.</param>
+        /// <param name="Handle">A handle to a security token or object used as the basis for the new authorization context. This handle must
+        /// be valid and remain open for the duration of the callback.</param>
+        /// <param name="hAuthzResourceManager">A handle to the resource manager with which the authorization context is associated. This handle must be
+        /// valid.</param>
+        /// <param name="pExpirationTime">The expiration time, in 100-nanosecond intervals since January 1, 1601 (UTC), for the authorization context,
+        /// or null if no expiration is set.</param>
+        /// <param name="Identifier">A reference to a locally unique identifier (LUID) that uniquely identifies the authorization context.</param>
+        /// <param name="DynamicGroupArgs">A pointer to application-defined data used to compute dynamic groups for the context. This value may be null
+        /// if not required.</param>
+        /// <param name="phAuthzClientContext">When this method returns, contains a handle to the newly created authorization client context.</param>
+        /// <returns>A BOOL value that is nonzero if the context was successfully initialized; otherwise, zero.</returns>
+        private delegate BOOL AuthzInitializeContext(AUTHZ_CONTEXT_FLAGS Flags, SafeHandle Handle, SafeHandle hAuthzResourceManager, long? pExpirationTime, in LUID Identifier, IntPtr DynamicGroupArgs, out AuthzFreeContextSafeHandle phAuthzClientContext);
     }
 }

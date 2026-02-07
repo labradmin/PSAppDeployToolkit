@@ -13,6 +13,8 @@ function Get-ADTIniValue
     .DESCRIPTION
         The Get-ADTIniValue function parses an INI file and returns the value of the specified section and key.
 
+        Please note that the INI file provided cannot have a byte order mark (BOM) present as the underlying Win32 API cannot process it correctly.
+
     .PARAMETER FilePath
         Path to the INI file.
 
@@ -42,7 +44,7 @@ function Get-ADTIniValue
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK

@@ -10,7 +10,7 @@ namespace PSADT.Tests.ProcessManagement
     /// to Microsoft's CommandLineToArgv(), msvcrt pre-2008, msvcrt post-2008, and other Windows
     /// command line parsing standards.
     /// </summary>
-    public class CommandLineUtilitiesTests
+    public sealed class CommandLineUtilitiesTests
     {
         /// <summary>
         /// Tests basic argument parsing with simple cases.
@@ -112,7 +112,7 @@ namespace PSADT.Tests.ProcessManagement
         public void CommandLineToArgumentList_NullInput_ThrowsArgumentNullException()
         {
             // Act & Assert
-            Assert.Throws<ArgumentNullException>(() => CommandLineUtilities.CommandLineToArgumentList(null!));
+            _ = Assert.Throws<ArgumentNullException>(() => CommandLineUtilities.CommandLineToArgumentList(null!));
         }
 
         /// <summary>
@@ -171,8 +171,8 @@ namespace PSADT.Tests.ProcessManagement
         public void ArgumentListToCommandLine_ListAndArray_ReturnSameResults()
         {
             // Arrange
-            string[] args = { "program", "arg1", "arg2" };
-            List<string> argsList = args.ToList();
+            string[] args = ["program", "arg1", "arg2"];
+            List<string> argsList = [.. args];
 
             // Act
             string arrayResult = CommandLineUtilities.ArgumentListToCommandLine(args)!;
@@ -189,8 +189,8 @@ namespace PSADT.Tests.ProcessManagement
         public void ArgumentListToCommandLine_ComplexListAndArray_ReturnSameResults()
         {
             // Arrange
-            string[] args = { "program with spaces", "arg with spaces" };
-            List<string> argsList = args.ToList();
+            string[] args = ["program with spaces", "arg with spaces"];
+            List<string> argsList = [.. args];
 
             // Act
             string arrayResult = CommandLineUtilities.ArgumentListToCommandLine(args)!;
@@ -207,8 +207,8 @@ namespace PSADT.Tests.ProcessManagement
         public void ArgumentListToCommandLine_QuotedListAndArray_ReturnSameResults()
         {
             // Arrange
-            string[] args = { "program", "arg\"with\"quotes" };
-            List<string> argsList = args.ToList();
+            string[] args = ["program", "arg\"with\"quotes"];
+            List<string> argsList = [.. args];
 
             // Act
             string arrayResult = CommandLineUtilities.ArgumentListToCommandLine(args)!;
@@ -225,7 +225,7 @@ namespace PSADT.Tests.ProcessManagement
         public void ArgumentListToCommandLine_NullArrayInput_ThrowsArgumentNullException()
         {
             // Act & Assert
-            Assert.Throws<ArgumentNullException>(() => CommandLineUtilities.ArgumentListToCommandLine((IReadOnlyList<string>)null!));
+            _ = Assert.Throws<ArgumentNullException>(() => CommandLineUtilities.ArgumentListToCommandLine(null!));
         }
 
         /// <summary>
@@ -235,7 +235,7 @@ namespace PSADT.Tests.ProcessManagement
         public void ArgumentListToCommandLine_NullListInput_ThrowsArgumentNullException()
         {
             // Act & Assert
-            Assert.Throws<ArgumentNullException>(() => CommandLineUtilities.ArgumentListToCommandLine((List<string>)null!));
+            _ = Assert.Throws<ArgumentNullException>(() => CommandLineUtilities.ArgumentListToCommandLine(null!));
         }
 
         /// <summary>
@@ -265,22 +265,22 @@ namespace PSADT.Tests.ProcessManagement
         public void RoundTrip_CreateAndParse_PreservesComplexArguments()
         {
             // Test case 1: Complex arguments with various special characters
-            string[] originalArgs1 = { "a", "b c", "d\"e", "f\\g", "h\\\"i", "j\\\\k", "l\\\\" };
-            string[] expectedArgs1 = originalArgs1.Select(a => a ?? string.Empty).ToArray();
+            string[] originalArgs1 = ["a", "b c", "d\"e", "f\\g", "h\\\"i", "j\\\\k", "l\\\\"];
+            string[] expectedArgs1 = [.. originalArgs1.Select(a => a ?? string.Empty)];
             string commandLine1 = CommandLineUtilities.ArgumentListToCommandLine(originalArgs1)!;
             IReadOnlyList<string> parsedArgs1 = CommandLineUtilities.CommandLineToArgumentList(commandLine1)!;
             Assert.Equal(expectedArgs1, parsedArgs1);
 
             // Test case 2: Path arguments
-            string[] originalArgs2 = { "C:\\Program Files\\My App\\", "data.csv" };
-            string[] expectedArgs2 = originalArgs2.Select(a => a ?? string.Empty).ToArray();
+            string[] originalArgs2 = ["C:\\Program Files\\My App\\", "data.csv"];
+            string[] expectedArgs2 = [.. originalArgs2.Select(a => a ?? string.Empty)];
             string commandLine2 = CommandLineUtilities.ArgumentListToCommandLine(originalArgs2)!;
             IReadOnlyList<string> parsedArgs2 = CommandLineUtilities.CommandLineToArgumentList(commandLine2)!;
             Assert.Equal(expectedArgs2, parsedArgs2);
 
             // Test case 5: Multiple simple arguments
-            string[] originalArgs5 = { "a", "b c", "d", "e" };
-            string[] expectedArgs5 = originalArgs5.Select(a => a ?? string.Empty).ToArray();
+            string[] originalArgs5 = ["a", "b c", "d", "e"];
+            string[] expectedArgs5 = [.. originalArgs5.Select(a => a ?? string.Empty)];
             string commandLine5 = CommandLineUtilities.ArgumentListToCommandLine(originalArgs5)!;
             IReadOnlyList<string> parsedArgs5 = CommandLineUtilities.CommandLineToArgumentList(commandLine5)!;
             Assert.Equal(expectedArgs5, parsedArgs5);
@@ -584,34 +584,36 @@ namespace PSADT.Tests.ProcessManagement
         /// This ensures that ArgumentListToCommandLine followed by CommandLineToArgumentList
         /// preserves the original arguments exactly.
         /// </summary>
-        public static IEnumerable<object[]> SystematicRoundTripTestData()
+        public static TheoryData<string[]> SystematicRoundTripTestData()
         {
-            yield return new object[] { new[] { "a", "b" } };
-            yield return new object[] { new[] { "a b", "c" } };
-            yield return new object[] { new[] { "a\tb", "c" } };
-            yield return new object[] { new[] { "a\"b" } };
-            yield return new object[] { new[] { "a\\b" } };
-            yield return new object[] { new[] { "a\\\\b" } };
-            yield return new object[] { new[] { "a\\\"b" } };
-            yield return new object[] { new[] { "a b", "c d" } };
-            yield return new object[] { new[] { "a\\", "b" } };
-            yield return new object[] { new[] { "a\\\\", "b" } };
-            yield return new object[] { new[] { "a b c" } };
-            yield return new object[] { new[] { "a", "b c" } };
-            yield return new object[] { new[] { "a", "b\tc" } };
-            yield return new object[] { new[] { "a", "b\"c" } };
-            yield return new object[] { new[] { "a", "b\\" } };
-            yield return new object[] { new[] { "a", "b\\\\" } };
-            yield return new object[] { new[] { "a", "b\\c" } };
-            yield return new object[] { new[] { "a", "b\\\\c" } };
-            yield return new object[] { new[] { "a", "b\\\"c" } };
-            yield return new object[] { new[] { "C:\\Program Files\\App\\" } };
-            yield return new object[] { new[] { "C:\\Path\\", "arg with space" } };
-            yield return new object[] { new[] { "argument with \"quotes\"" } };
-            yield return new object[] { new[] { "argument with \"\"escaped quotes\"\"" } };
-            yield return new object[] { new[] { "c:\\Path with spaces\\trailing_backslash\\" } };
-            yield return new object[] { new[] { "program", "arg1", "arg2" } };
-            yield return new object[] { new[] { "complex\"arg", "with\\backslashes", "and spaces" } };
+            return [
+                ["a", "b"],
+                ["a b", "c"],
+                ["a\tb", "c"],
+                ["a\"b"],
+                ["a\\b"],
+                ["a\\\\b"],
+                ["a\\\"b"],
+                ["a b", "c d"],
+                ["a\\", "b"],
+                ["a\\\\", "b"],
+                ["a b c"],
+                ["a", "b c"],
+                ["a", "b\tc"],
+                ["a", "b\"c"],
+                ["a", "b\\"],
+                ["a", "b\\\\"],
+                ["a", "b\\c"],
+                ["a", "b\\\\c"],
+                ["a", "b\\\"c"],
+                ["C:\\Program Files\\App\\"],
+                ["C:\\Path\\", "arg with space"],
+                ["argument with \"quotes\""],
+                ["argument with \"\"escaped quotes\"\""],
+                ["c:\\Path with spaces\\trailing_backslash\\"],
+                ["program", "arg1", "arg2"],
+                ["complex\"arg", "with\\backslashes", "and spaces"]
+            ];
         }
 
         /// <summary>
@@ -708,11 +710,11 @@ namespace PSADT.Tests.ProcessManagement
         /// These scenarios are based on actual command lines that might be encountered in Windows environments.
         /// </summary>
         [Theory]
-        [InlineData("\"C:\\Program Files\\\\app.exe\" -arg \"value with \\\"quotes\\\"\"", 
+        [InlineData("\"C:\\Program Files\\\\app.exe\" -arg \"value with \\\"quotes\\\"\"",
                    new[] { "C:\\Program Files\\\\app.exe", "-arg", "value with \"quotes\"" })]
-        [InlineData("command -o \"output file.txt\" --path \"C:\\Users\\Test User\\\\\"", 
+        [InlineData("command -o \"output file.txt\" --path \"C:\\Users\\Test User\\\\\"",
                    new[] { "command", "-o", "output file.txt", "--path", "C:\\Users\\Test User\\" })]
-        [InlineData("arg1 \"arg2 with \"\"quotes\"\"\" arg3", 
+        [InlineData("arg1 \"arg2 with \"\"quotes\"\"\" arg3",
                    new[] { "arg1", "arg2 with \"quotes\"", "arg3" })]
         [InlineData("msiexec.exe /i \"C:\\Temp\\App Installer.msi\" /qn TARGETDIR=\"C:\\Program Files\\My App\\\"",
                    new[] { "msiexec.exe", "/i", "C:\\Temp\\App Installer.msi", "/qn", "TARGETDIR=C:\\Program Files\\My App\"" })]
@@ -746,16 +748,16 @@ namespace PSADT.Tests.ProcessManagement
         /// These test the reverse operation to ensure proper escaping for complex arguments.
         /// </summary>
         [Theory]
-        [InlineData(new[] { "C:\\Program Files\\app.exe", "-arg", "value with \"quotes\"" }, 
+        [InlineData(new[] { "C:\\Program Files\\app.exe", "-arg", "value with \"quotes\"" },
                    "\"C:\\Program Files\\app.exe\" -arg \"value with \\\"quotes\\\"\"")]
-        [InlineData(new[] { "command", "-o", "output file.txt", "--path", "C:\\Users\\Test User\\" }, 
+        [InlineData(new[] { "command", "-o", "output file.txt", "--path", "C:\\Users\\Test User\\" },
                    "command -o \"output file.txt\" --path \"C:\\Users\\Test User\\\\\"")]
-        [InlineData(new[] { "a b \" c \\ d e f" }, 
+        [InlineData(new[] { "a b \" c \\ d e f" },
                    "\"a b \\\" c \\ d e f\"")]
-        [InlineData(new[] { "arg1", "arg2 with \"quotes\"", "arg3" }, 
+        [InlineData(new[] { "arg1", "arg2 with \"quotes\"", "arg3" },
                    "arg1 \"arg2 with \\\"quotes\\\"\" arg3")]
-        [InlineData(new[] { "msiexec.exe", "/i", "C:\\Temp\\App Installer.msi", "/qn", "TARGETDIR=C:\\Program Files\\My App\\" },
-                   "msiexec.exe /i \"C:\\Temp\\App Installer.msi\" /qn \"TARGETDIR=C:\\Program Files\\My App\\\\\"")]
+        [InlineData(new[] { "msiexec.exe", "/i", "C:\\Temp\\App Installer.msi", "/qn", "TARGETDIR=\"C:\\Program Files\\My App\\\"" },
+                   "msiexec.exe /i \"C:\\Temp\\App Installer.msi\" /qn TARGETDIR=\"C:\\Program Files\\My App\\\"")]
         public void ArgumentListToCommandLine_ComplexRealWorldScenarios_EscapedCorrectly(string[] argv, string expected)
         {
             // Act
@@ -872,7 +874,7 @@ namespace PSADT.Tests.ProcessManagement
         [InlineData("\"\\\\server name\\share name\"", new[] { "\\\\server name\\share name" })]
         [InlineData("\"\\\\server\\share with spaces\\file.txt\"", new[] { "\\\\server\\share with spaces\\file.txt" })]
         [InlineData("\"\\\\server\\share\\folder with spaces\\\"", new[] { "\\\\server\\share\\folder with spaces\"" })]
-        [InlineData("\"\\\\very long server name\\very long share name\\very long file name.txt\"", 
+        [InlineData("\"\\\\very long server name\\very long share name\\very long file name.txt\"",
                    new[] { "\\\\very long server name\\very long share name\\very long file name.txt" })]
         public void CommandLineToArgumentList_UncPathsWithSpaces_ParsedCorrectly(string commandLine, IReadOnlyList<string> expected)
         {
@@ -963,18 +965,20 @@ namespace PSADT.Tests.ProcessManagement
         /// <summary>
         /// Tests round-trip scenarios for UNC paths to ensure they are preserved accurately.
         /// </summary>
-        public static IEnumerable<object[]> UncPathRoundTripTestData()
+        public static TheoryData<string[]> UncPathRoundTripTestData()
         {
-            yield return new object[] { new[] { "\\\\server\\share" } };
-            yield return new object[] { new[] { "\\\\server\\share\\file.txt" } };
-            yield return new object[] { new[] { "\\\\server name\\share name" } };
-            yield return new object[] { new[] { "\\\\server\\share with spaces\\file.txt" } };
-            yield return new object[] { new[] { "\\\\server\\share\\" } };
-            yield return new object[] { new[] { "\\\\server\\share\\folder with spaces\\" } };
-            yield return new object[] { new[] { "\\\\server\\share\\file\"name.txt" } };
-            yield return new object[] { new[] { "\\\\server\\share \"with quotes\"\\file.txt" } };
-            yield return new object[] { new[] { "\\\\server\\share\\folder\\", "local-file.txt", "\\\\other-server\\other-share\\target.txt" } };
-            yield return new object[] { new[] { "\\\\domain.com\\dfs-share\\deep\\folder\\structure\\file.extension" } };
+            return [
+                ["\\\\server\\share"],
+                ["\\\\server\\share\\file.txt"],
+                ["\\\\server name\\share name"],
+                ["\\\\server\\share with spaces\\file.txt"],
+                ["\\\\server\\share\\"],
+                ["\\\\server\\share\\folder with spaces\\"],
+                ["\\\\server\\share\\file\"name.txt"],
+                ["\\\\server\\share \"with quotes\"\\file.txt"],
+                ["\\\\server\\share\\folder\\", "local-file.txt", "\\\\other-server\\other-share\\target.txt"],
+                ["\\\\domain.com\\dfs-share\\deep\\folder\\structure\\file.extension"],
+            ];
         }
 
         /// <summary>
@@ -1031,10 +1035,11 @@ namespace PSADT.Tests.ProcessManagement
 
         /// <summary>
         /// Tests ArgumentListToCommandLine with real-world UNC scenarios to verify proper escaping.
+        /// Key=value arguments are preserved without quotes to support tools like NSIS.
         /// </summary>
         [Theory]
         [InlineData(new[] { "\\\\fileserver.domain.com\\shared\\IT\\Software\\Installers\\MyApp v2.1\\setup.exe", "/S", "/D=C:\\Program Files\\MyApp" },
-                   "\"\\\\fileserver.domain.com\\shared\\IT\\Software\\Installers\\MyApp v2.1\\setup.exe\" /S \"/D=C:\\Program Files\\MyApp\"")]
+                   "\"\\\\fileserver.domain.com\\shared\\IT\\Software\\Installers\\MyApp v2.1\\setup.exe\" /S /D=C:\\Program Files\\MyApp")]
         [InlineData(new[] { "msiexec.exe", "/i", "\\\\server\\msi-packages\\Application Suite.msi", "/qn", "TARGETDIR=\\\\server\\app-installs\\Application\\" },
                    "msiexec.exe /i \"\\\\server\\msi-packages\\Application Suite.msi\" /qn TARGETDIR=\\\\server\\app-installs\\Application\\")]
         [InlineData(new[] { "powershell.exe", "-File", "\\\\scripts-server\\powershell\\Deploy-Application.ps1", "-ApplicationPath", "\\\\apps-server\\applications\\MyApp\\" },
@@ -1052,11 +1057,11 @@ namespace PSADT.Tests.ProcessManagement
         /// Tests the new path detection functionality for unquoted paths with spaces.
         /// </summary>
         [Theory]
-        [InlineData("C:\\Program Files\\MyApp\\myapp.exe /flag", 
+        [InlineData("C:\\Program Files\\MyApp\\myapp.exe /flag",
                    new[] { "C:\\Program Files\\MyApp\\myapp.exe", "/flag" })]
         [InlineData("C:\\ProgramData\\Caphyon\\Advanced Installer\\{E928DFCD-4C3A-4301-872C-4655F1B18AC1}\\minitab22.3.1.0setup.x64.exe /i {E928DFCD-4C3A-4301-872C-4655F1B18AC1} AI_UNINSTALLER_CTP=1",
                    new[] { "C:\\ProgramData\\Caphyon\\Advanced Installer\\{E928DFCD-4C3A-4301-872C-4655F1B18AC1}\\minitab22.3.1.0setup.x64.exe", "/i", "{E928DFCD-4C3A-4301-872C-4655F1B18AC1}", "AI_UNINSTALLER_CTP=1" })]
-        [InlineData("\\\\server\\share\\My App\\setup.exe /silent", 
+        [InlineData("\\\\server\\share\\My App\\setup.exe /silent",
                    new[] { "\\\\server\\share\\My App\\setup.exe", "/silent" })]
         [InlineData("D:\\Some Folder\\Another Folder\\app.msi PROPERTY=value",
                    new[] { "D:\\Some Folder\\Another Folder\\app.msi", "PROPERTY=value" })]
@@ -1075,9 +1080,9 @@ namespace PSADT.Tests.ProcessManagement
         /// Tests that path detection can be disabled and falls back to standard parsing.
         /// </summary>
         [Theory]
-        [InlineData("C:\\Program Files\\MyApp\\myapp.exe /flag", 
+        [InlineData("C:\\Program Files\\MyApp\\myapp.exe /flag",
                    new[] { "C:\\Program", "Files\\MyApp\\myapp.exe", "/flag" })]
-        [InlineData("\\\\server\\share\\My App\\setup.exe /silent", 
+        [InlineData("\\\\server\\share\\My App\\setup.exe /silent",
                    new[] { "\\\\server\\share\\My", "App\\setup.exe", "/silent" })]
         public void CommandLineToArgumentList_PathDetectionDisabled_UsesStandardParsing(string commandLine, IReadOnlyList<string> expected)
         {
@@ -1092,9 +1097,9 @@ namespace PSADT.Tests.ProcessManagement
         /// Tests that quoted paths are still handled correctly with path detection enabled.
         /// </summary>
         [Theory]
-        [InlineData("\"C:\\Program Files\\MyApp\\myapp.exe\" /flag", 
+        [InlineData("\"C:\\Program Files\\MyApp\\myapp.exe\" /flag",
                    new[] { "C:\\Program Files\\MyApp\\myapp.exe", "/flag" })]
-        [InlineData("\"\\\\server\\share\\My App\\setup.exe\" /silent", 
+        [InlineData("\"\\\\server\\share\\My App\\setup.exe\" /silent",
                    new[] { "\\\\server\\share\\My App\\setup.exe", "/silent" })]
         [InlineData("\"C:\\Program Files\\MyApp\\myapp.exe\" \"C:\\Some Other Path\\file.txt\" /option",
                    new[] { "C:\\Program Files\\MyApp\\myapp.exe", "C:\\Some Other Path\\file.txt", "/option" })]
@@ -1165,7 +1170,7 @@ namespace PSADT.Tests.ProcessManagement
                    new[] { "\\\\server\\share\\folder with spaces\\app.exe", "/option" })]
         [InlineData("\\\\file-server\\shared folder\\setup files\\installer.msi /quiet",
                    new[] { "\\\\file-server\\shared folder\\setup files\\installer.msi", "/quiet" })]
-        [InlineData("\\\\domain.local\\software distribution\\My Application Suite\\setup.exe TARGETDIR=C:\\Program Files",
+        [InlineData("\\\\domain.local\\software distribution\\My Application Suite\\setup.exe TARGETDIR=\"C:\\Program Files\"",
                    new[] { "\\\\domain.local\\software distribution\\My Application Suite\\setup.exe", "TARGETDIR=\"C:\\Program Files\"" })]
         public void CommandLineToArgumentList_UncPathDetection_ParsedCorrectly(string commandLine, IReadOnlyList<string> expected)
         {
@@ -1281,6 +1286,263 @@ namespace PSADT.Tests.ProcessManagement
 
             // Assert
             Assert.Equal(expected, result);
+        }
+
+        /// <summary>
+        /// Tests that quoted key=value arguments (where the entire argument is wrapped in quotes)
+        /// are parsed correctly without double-quoting. This is a regression test for Chrome-style
+        /// command lines where arguments like "--user-data-dir=C:\path with spaces" are quoted
+        /// as a whole.
+        /// </summary>
+        [Theory]
+        [InlineData("\"--user-data-dir=C:\\Users\\test\\AppData\\Local\\Google\\Chrome\\User Data\"",
+                   new[] { "--user-data-dir=C:\\Users\\test\\AppData\\Local\\Google\\Chrome\\User Data" })]
+        [InlineData("\"--database=C:\\Users\\test\\AppData\\Local\\Google\\Chrome\\User Data\\Crashpad\"",
+                   new[] { "--database=C:\\Users\\test\\AppData\\Local\\Google\\Chrome\\User Data\\Crashpad" })]
+        [InlineData("\"--key=value with spaces\"",
+                   new[] { "--key=value with spaces" })]
+        [InlineData("\"-D=C:\\Program Files\\App\"",
+                   new[] { "-D=C:\\Program Files\\App" })]
+        [InlineData("\"/D=C:\\Program Files\\App\"",
+                   new[] { "/D=C:\\Program Files\\App" })]
+        public void CommandLineToArgumentList_QuotedKeyValueArguments_ParsedWithoutDoubleQuoting(string commandLine, IReadOnlyList<string> expected)
+        {
+            // Act
+            IReadOnlyList<string> result = CommandLineUtilities.CommandLineToArgumentList(commandLine);
+
+            // Assert
+            Assert.Equal(expected, result);
+        }
+
+        /// <summary>
+        /// Tests Chrome-style command lines with multiple quoted key=value arguments.
+        /// This is a real-world regression test based on actual Chrome crashpad handler command lines.
+        /// </summary>
+        [Fact]
+        public void CommandLineToArgumentList_ChromeStyleCommandLine_ParsedCorrectly()
+        {
+            // Arrange - Real Chrome crashpad handler command line
+            string commandLine = "\"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\" " +
+                "--type=crashpad-handler " +
+                "\"--user-data-dir=C:\\Users\\test\\AppData\\Local\\Google\\Chrome\\User Data\" " +
+                "/prefetch:4 " +
+                "--monitor-self-annotation=ptype=crashpad-handler " +
+                "\"--database=C:\\Users\\test\\AppData\\Local\\Google\\Chrome\\User Data\\Crashpad\" " +
+                "--url=https://clients2.google.com/cr/report " +
+                "--annotation=channel= " +
+                "--annotation=plat=Win64 " +
+                "--annotation=prod=Chrome " +
+                "--annotation=ver=143.0.7499.42 " +
+                "--initial-client-data=0x124,0x128,0x12c,0x100,0x130,0x7ff8afed59e8,0x7ff8afed59f4,0x7ff8afed5a00";
+
+            string[] expected =
+            [
+                "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+                "--type=crashpad-handler",
+                "--user-data-dir=C:\\Users\\test\\AppData\\Local\\Google\\Chrome\\User Data",
+                "/prefetch:4",
+                "--monitor-self-annotation=ptype=crashpad-handler",
+                "--database=C:\\Users\\test\\AppData\\Local\\Google\\Chrome\\User Data\\Crashpad",
+                "--url=https://clients2.google.com/cr/report",
+                "--annotation=channel=",
+                "--annotation=plat=Win64",
+                "--annotation=prod=Chrome",
+                "--annotation=ver=143.0.7499.42",
+                "--initial-client-data=0x124,0x128,0x12c,0x100,0x130,0x7ff8afed59e8,0x7ff8afed59f4,0x7ff8afed5a00"
+            ];
+
+            // Act
+            IReadOnlyList<string> result = CommandLineUtilities.CommandLineToArgumentList(commandLine);
+
+            // Assert
+            Assert.Equal(expected, result);
+        }
+
+        /// <summary>
+        /// Tests that unquoted key=value arguments with quoted values are still parsed correctly.
+        /// This ensures the fix for quoted whole arguments doesn't break the existing key="value" handling.
+        /// </summary>
+        [Theory]
+        [InlineData("--key=\"value with spaces\"",
+                   new[] { "--key=\"value with spaces\"" })]
+        [InlineData("/D=\"C:\\Program Files\\App\"",
+                   new[] { "/D=\"C:\\Program Files\\App\"" })]
+        [InlineData("TARGETDIR=\"C:\\Program Files\\My App\"",
+                   new[] { "TARGETDIR=\"C:\\Program Files\\My App\"" })]
+        [InlineData("program.exe --config=\"C:\\My Config\\file.json\"",
+                   new[] { "program.exe", "--config=\"C:\\My Config\\file.json\"" })]
+        public void CommandLineToArgumentList_UnquotedKeyWithQuotedValue_ParsedCorrectly(string commandLine, IReadOnlyList<string> expected)
+        {
+            // Act
+            IReadOnlyList<string> result = CommandLineUtilities.CommandLineToArgumentList(commandLine);
+
+            // Assert
+            Assert.Equal(expected, result);
+        }
+
+        /// <summary>
+        /// Tests that NSIS-style /D= parameter is preserved without quotes when parsing.
+        /// NSIS explicitly requires: "It must be the last parameter used in the command line and must not
+        /// contain any quotes, even if the path contains spaces."
+        /// </summary>
+        [Theory]
+        [InlineData("/D=C:\\Program Files\\NSIS",
+                   new[] { "/D=C:\\Program Files\\NSIS" })]
+        [InlineData("setup.exe /S /D=C:\\Program Files\\My App",
+                   new[] { "setup.exe", "/S", "/D=C:\\Program Files\\My App" })]
+        public void CommandLineToArgumentList_NsisStyleParameter_PreservesUnquotedFormat(string commandLine, IReadOnlyList<string> expected)
+        {
+            // Act
+            IReadOnlyList<string> result = CommandLineUtilities.CommandLineToArgumentList(commandLine);
+
+            // Assert
+            Assert.Equal(expected, result);
+        }
+
+        /// <summary>
+        /// Tests that NSIS-style /D= parameter is preserved without quotes when converting back to command line.
+        /// NSIS explicitly requires: "It must be the last parameter used in the command line and must not
+        /// contain any quotes, even if the path contains spaces."
+        /// </summary>
+        [Theory]
+        [InlineData(new[] { "C:\\Windows\\notepad.exe", "/D=C:\\Program Files\\NSIS" },
+                   "C:\\Windows\\notepad.exe /D=C:\\Program Files\\NSIS")]
+        [InlineData(new[] { "setup.exe", "/S", "/D=C:\\Program Files\\My App" },
+                   "setup.exe /S /D=C:\\Program Files\\My App")]
+        [InlineData(new[] { "installer.exe", "TARGETDIR=C:\\Program Files\\App" },
+                   "installer.exe TARGETDIR=C:\\Program Files\\App")]
+        public void ArgumentListToCommandLine_NsisStyleKeyValue_PreservesUnquotedFormat(string[] args, string expected)
+        {
+            // Act
+            string result = CommandLineUtilities.ArgumentListToCommandLine(args)!;
+
+            // Assert
+            Assert.Equal(expected, result);
+        }
+
+        /// <summary>
+        /// Tests that flag+path arguments (like 7-Zip's -sfx_o parameter) are escaped correctly.
+        /// When a flag has a path attached without a space, only the path portion should be quoted.
+        /// </summary>
+        [Theory]
+        [InlineData(new[] { "-sfx_oC:\\Program Files\\Output" }, "-sfx_o\"C:\\Program Files\\Output\"")]
+        [InlineData(new[] { "-sfx_oC:\\My Path\\file.exe" }, "-sfx_o\"C:\\My Path\\file.exe\"")]
+        [InlineData(new[] { "/DC:\\Program Files\\App" }, "/D\"C:\\Program Files\\App\"")]
+        [InlineData(new[] { "-output\\\\server\\shared folder\\file.txt" }, "-output\"\\\\server\\shared folder\\file.txt\"")]
+        [InlineData(new[] { "--pathC:\\Simple\\Path" }, "--pathC:\\Simple\\Path")] // No spaces, no quoting needed
+        [InlineData(new[] { "-oC:\\NoSpaces\\file.exe" }, "-oC:\\NoSpaces\\file.exe")] // No spaces, no quoting needed
+        public void ArgumentListToCommandLine_FlagWithAttachedPath_EscapesOnlyPathPortion(string[] args, string expected)
+        {
+            // Act
+            string result = CommandLineUtilities.ArgumentListToCommandLine(args)!;
+
+            // Assert
+            Assert.Equal(expected, result);
+        }
+
+        /// <summary>
+        /// Tests that flag+path arguments that are already quoted are returned unchanged.
+        /// This handles the case where the caller passes an argument like -sfx_o"C:\Path\To\Output"
+        /// with embedded quotes that should be preserved as-is.
+        /// </summary>
+        [Theory]
+        [InlineData(new[] { "-sfx_o\"C:\\Path\\To\\Output\"" }, "-sfx_o\"C:\\Path\\To\\Output\"")]
+        [InlineData(new[] { "/D\"C:\\Program Files\\App\"" }, "/D\"C:\\Program Files\\App\"")]
+        [InlineData(new[] { "-output\"\\\\server\\share\\folder\"" }, "-output\"\\\\server\\share\\folder\"")]
+        [InlineData(new[] { "--path\"C:\\Already Quoted\\Path\"" }, "--path\"C:\\Already Quoted\\Path\"")]
+        public void ArgumentListToCommandLine_FlagWithAlreadyQuotedPath_PreservesQuotes(string[] args, string expected)
+        {
+            // Act
+            string result = CommandLineUtilities.ArgumentListToCommandLine(args)!;
+
+            // Assert
+            Assert.Equal(expected, result);
+        }
+
+        /// <summary>
+        /// Tests round-trip parsing for flag+path arguments to ensure they are preserved correctly.
+        /// This is critical for tools like 7-Zip that require -sfx_o"path" format.
+        /// In compatible mode, the quotes are preserved as part of the argument.
+        /// </summary>
+        [Theory]
+        [InlineData("-sfx_o\"C:\\Program Files\\Output\"", new[] { "-sfx_o\"C:\\Program Files\\Output\"" })]
+        [InlineData("-sfx_o\"C:\\My Path\\file.exe\"", new[] { "-sfx_o\"C:\\My Path\\file.exe\"" })]
+        [InlineData("/D\"C:\\Program Files\\App\"", new[] { "/D\"C:\\Program Files\\App\"" })]
+        [InlineData("-output\"\\\\server\\share\\folder\"", new[] { "-output\"\\\\server\\share\\folder\"" })]
+        public void CommandLineToArgumentList_FlagWithQuotedPath_ParsedCorrectly(string commandLine, IReadOnlyList<string> expected)
+        {
+            // Act
+            IReadOnlyList<string> result = CommandLineUtilities.CommandLineToArgumentList(commandLine);
+
+            // Assert
+            Assert.Equal(expected, result);
+        }
+
+
+        /// <summary>
+        /// Tests full round-trip for 7-Zip style flag+path arguments.
+        /// Parses the command line, converts back, and verifies the format is correct.
+        /// In compatible mode, quotes are preserved as part of the argument.
+        /// </summary>
+        [Fact]
+        public void FlagWithAttachedPath_RoundTrip_PreservesFormat()
+        {
+            // Arrange - Original command line with 7-Zip style flag+path
+            string original = "-sfx_o\"C:\\Program Files\\Adobe Acrobat Reader install\"";
+
+            // Act - Parse to arguments
+            IReadOnlyList<string> parsed = CommandLineUtilities.CommandLineToArgumentList(original);
+
+            // Assert - Should parse to single argument with quotes preserved
+            _ = Assert.Single(parsed);
+            Assert.Equal("-sfx_o\"C:\\Program Files\\Adobe Acrobat Reader install\"", parsed[0]);
+
+            // Act - Convert back to command line
+            string recreated = CommandLineUtilities.ArgumentListToCommandLine(parsed)!;
+
+            // Assert - Should be identical to original (quotes already present, preserved as-is)
+            Assert.Equal(original, recreated);
+
+            // Act - Parse again to verify round-trip
+            IReadOnlyList<string> reparsed = CommandLineUtilities.CommandLineToArgumentList(recreated);
+
+            // Assert - Should match original parsed arguments
+            Assert.Equal(parsed, reparsed);
+        }
+
+        /// <summary>
+        /// Tests that regular arguments starting with - or / are not incorrectly treated as flag+path.
+        /// </summary>
+        [Theory]
+        [InlineData(new[] { "-flag" }, "-flag")]
+        [InlineData(new[] { "/option" }, "/option")]
+        [InlineData(new[] { "-flag", "value" }, "-flag value")]
+        [InlineData(new[] { "--long-flag=value" }, "--long-flag=value")]
+        [InlineData(new[] { "-D=value" }, "-D=value")]
+        public void ArgumentListToCommandLine_RegularFlags_NotTreatedAsFlagWithPath(string[] args, string expected)
+        {
+            // Act
+            string result = CommandLineUtilities.ArgumentListToCommandLine(args)!;
+
+            // Assert
+            Assert.Equal(expected, result);
+        }
+
+        /// <summary>
+        /// Tests real-world 7-Zip command line scenario with multiple arguments.
+        /// </summary>
+        [Fact]
+        public void ArgumentListToCommandLine_SevenZipScenario_EscapedCorrectly()
+        {
+            // Arrange - Test the specific flag+path argument
+            string sfxArg = "-sfx_oC:\\Program Files\\My App\\";
+            string[] testArgs = [sfxArg];
+
+            // Act
+            string result = CommandLineUtilities.ArgumentListToCommandLine(testArgs)!;
+
+            // Assert - The path portion should be quoted, not the entire argument
+            Assert.Equal("-sfx_o\"C:\\Program Files\\My App\\\\\"", result);
         }
     }
 }

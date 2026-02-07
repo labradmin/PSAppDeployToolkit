@@ -62,7 +62,7 @@ function Invoke-ADTFunctionErrorHandler
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -139,7 +139,7 @@ function Invoke-ADTFunctionErrorHandler
     }
 
     # Write out the error to the log file.
-    if ($OriginalErrorAction -notmatch '^(SilentlyContinue|Ignore)$' -and (!$PSBoundParameters.ContainsKey('DisableErrorResolving') -or !$PSBoundParameters.DisableErrorResolving))
+    if (($OriginalErrorAction -notmatch '^(SilentlyContinue|Ignore)$') -or ($PSBoundParameters.ContainsKey('DisableErrorResolving') -and !$PSBoundParameters.DisableErrorResolving))
     {
         $raerProps = @{ ErrorRecord = $ErrorRecord }; if ($PSCmdlet.ParameterSetName.Equals('AdditionalResolveErrorProperties'))
         {

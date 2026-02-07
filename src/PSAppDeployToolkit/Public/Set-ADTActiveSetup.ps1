@@ -87,16 +87,18 @@ function Set-ADTActiveSetup
 
         Original code borrowed from: Denis St-Pierre (Ottawa, Canada), Todd MacNaught (Ottawa, Canada)
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
         https://psappdeploytoolkit.com/docs/reference/functions/Set-ADTActiveSetup
     #>
 
-    [CmdletBinding(DefaultParameterSetName = 'Create')]
+    [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = 'Create')]
     param
     (
         [Parameter(Mandatory = $true, ParameterSetName = 'Create')]
@@ -183,6 +185,7 @@ function Set-ADTActiveSetup
         $paramDictionary.Add('Description', [System.Management.Automation.RuntimeDefinedParameter]::new(
                 'Description', [System.String], $(
                     [System.Management.Automation.ParameterAttribute]@{ Mandatory = !$adtSession; HelpMessage = 'Description for the Active Setup. Users will see "Setting up personalized settings for: $Description" at logon. Defaults to active session InstallName.'; ParameterSetName = 'Create' }
+                    [System.Management.Automation.ParameterAttribute]@{ Mandatory = !$adtSession; HelpMessage = 'Description for the Active Setup. Users will see "Setting up personalized settings for: $Description" at logon. Defaults to active session InstallName.'; ParameterSetName = 'CreateNoExecute' }
                     [System.Management.Automation.ValidateNotNullOrEmptyAttribute]::new()
                 )
             ))
@@ -240,7 +243,7 @@ function Set-ADTActiveSetup
 
                 [Parameter(Mandatory = $false)]
                 [ValidateNotNullOrEmpty()]
-                [System.String]$SID
+                [System.Security.Principal.SecurityIdentifier]$SID
             )
 
             # Internal worker for parsing the version number out.
@@ -436,7 +439,7 @@ function Set-ADTActiveSetup
 
                 [Parameter(Mandatory = $false)]
                 [ValidateNotNullOrEmpty()]
-                [System.String]$SID = [System.Management.Automation.Language.NullString]::Value,
+                [System.Security.Principal.SecurityIdentifier]$SID,
 
                 [Parameter(Mandatory = $false)]
                 [ValidateNotNullOrEmpty()]
@@ -488,6 +491,10 @@ function Set-ADTActiveSetup
                 # Delete Active Setup registry entry from the HKLM hive and for all logon user registry hives on the system.
                 if ($PurgeActiveSetupKey)
                 {
+                    if (!$PSCmdlet.ShouldProcess("Active Setup Key [$Key]", 'Remove'))
+                    {
+                        return
+                    }
                     # HLKM first.
                     Write-ADTLogEntry -Message "Removing Active Setup entry [$HKLMRegKey]."
                     Remove-ADTRegistryKey -Key $HKLMRegKey -Recurse
@@ -608,6 +615,10 @@ function Set-ADTActiveSetup
                 }
 
                 # Create the Active Setup entry in the registry.
+                if (!$PSCmdlet.ShouldProcess("Active Setup Key [$Key]", 'Create'))
+                {
+                    return
+                }
                 Write-ADTLogEntry -Message "Adding Active Setup Key for local machine: [$HKLMRegKey]."
                 Set-ADTActiveSetupRegistryEntry @sasreParams -RegPath $HKLMRegKey
 

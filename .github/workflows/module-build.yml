@@ -12,6 +12,8 @@ on:
 permissions:
   id-token: write # Require write permission to Fetch an OIDC token.
   contents: read
+env:
+  NUGET_PACKAGES: ${{ github.workspace }}\.nuget\packages
 jobs:
   test:
     name: Run Tests
@@ -20,7 +22,7 @@ jobs:
       fail-fast: false
     steps:
     - name: Check out repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Display the path
       shell: powershell
@@ -30,19 +32,28 @@ jobs:
       shell: powershell
       run: $PSVersionTable
 
-    - name: NuGet Latest
-      shell: powershell
-      run: Install-PackageProvider -Name NuGet -Confirm:$false -Force -Verbose
+    # actions/setup-dotnet caching is unwieldy with multiple projects
+    # https://github.com/NuGet/Home/issues/12409
+    - name: Cache NuGet packages
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.NUGET_PACKAGES }}
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
 
-    - name: PowerShellGet Latest
-      shell: powershell
-      run: Install-Module -Name PowerShellGet -Repository PSGallery -Force
+    - name: Cache PowerShell modules
+      uses: potatoqualitee/psmodulecache@v6.2.1
+      with:
+        modules-to-cache: PSScriptAnalyzer:1.24.0, Pester:5.7.1, platyPS:0.14.2, Alt3.Docusaurus.Powershell:1.0.37
+        shell: powershell
 
-    - name: Bootstrap
-      shell: powershell
-      run: ./actions_bootstrap.ps1
+    - name: Test and Build
+      shell: cmd
+      run: powershell.exe -ExecutionPolicy Bypass -File build.ps1
 
     - name: Install AzureSignTool
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/4.0.x' || github.ref == 'refs/heads/4.1.x'
       run: dotnet tool install --global azuresigntool
 
     - name: Azure Login
@@ -53,99 +64,55 @@ jobs:
         tenant-id: ${{ secrets.AZURE_TENANT_ID }}
         subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-    - name: Test and Build
+    - name: Sign module source
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/4.0.x' || github.ref == 'refs/heads/4.1.x'
       shell: powershell
-      run: Invoke-Build -File .\src\PSAppDeployToolkit.build.ps1
+      run: |
+        Get-ChildItem -Path "$($PWD)\src\Artifacts\Module\PSAppDeployToolkit" -Include '*.ps*1', 'PSAppDeployToolkit.dll', 'PSADT*.dll', 'PSADT*.exe', 'iNKORE.UI.WPF*.dll', 'Deploy-Application.exe', 'Invoke-AppDeployToolkit.exe' -Recurse | Select-Object -ExpandProperty FullName | Out-File "FilesToSign.txt"
+        & azuresigntool.exe sign -s -kvu https://psadt-kv-prod-codesign.vault.azure.net -kvc PSADT -kvm -tr http://timestamp.digicert.com -td sha256 -ifl FilesToSign.txt
+
+    - name: Generate artifact templates
+      shell: powershell
+      run: |
+        & (Import-Module -Name .\src\PSAppDeployToolkit.Build -PassThru) { Invoke-ADTCustomModuleBuild -Actions 'Export-ADTScriptTemplate' }
+
+    - name: Make artifact name suffix
+      id: ts
+      shell: powershell
+      run: |
+        "suffix=$(if ($env:GITHUB_REF_NAME -match 'merge$') {$env:GITHUB_REF_NAME.Split('/')[-2]} else {$env:GITHUB_REF_NAME.Split('/')[-1]})_$($env:GITHUB_SHA.Substring(0, 7))_$([System.DateTime]::Now.ToUniversalTime().ToString('O').Replace(':', [System.Management.Automation.Language.NullString]::Value) -replace '\.\d+')" >> $env:GITHUB_OUTPUT
 
     - name: Upload module
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
-        name: PSAppDeployToolkit_ModuleOnly
+        name: PSAppDeployToolkit_ModuleOnly__${{ steps.ts.outputs.suffix }}
         path: .\src\Artifacts\Module
         if-no-files-found: error
         compression-level: 9
         overwrite: true
 
     - name: Upload v3 module template
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
-        name: PSAppDeployToolkit_Template_v3
+        name: PSAppDeployToolkit_Template_v3__${{ steps.ts.outputs.suffix }}
         path: .\src\Artifacts\Template_v3
         if-no-files-found: error
         compression-level: 9
         overwrite: true
 
     - name: Upload v4 module template
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
-        name: PSAppDeployToolkit_Template_v4
+        name: PSAppDeployToolkit_Template_v4__${{ steps.ts.outputs.suffix }}
         path: .\src\Artifacts\Template_v4
         if-no-files-found: error
         compression-level: 9
         overwrite: true
 
-    - name: Update Website Docs
+    - name: Generate docs and update website
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/4.0.x' || github.ref == 'refs/heads/4.1.x'
       shell: powershell
       env:
         API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
       run: |
-        # Perform initial setup.
-        $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
-        Set-StrictMode -Version 3
-
-        # Clone the destination repo.
-        $dstBnch = 'main'
-        $dstRepo = "https://$env:API_TOKEN_GITHUB@github.com/$env:GITHUB_REPOSITORY_OWNER/website.git"
-        $dstBase = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
-        $dstPath = ("$dstBase\docs\reference\functions", "$dstBase\versioned_docs\version-4.0.0\reference\functions")[$env:GITHUB_REF_NAME -match '4\.0\.x']
-        Write-Host -Object "Cloning destination repository, please wait..."
-        git clone -b $dstBnch $dstRepo $dstBase
-        if ($Global:LASTEXITCODE)
-        {
-          throw "The cloning of the destination repository failed."
-        }
-
-        # Update the docs from the source repo to the destination.
-        Write-Host -Object "Updating the markdown files in destination repository."
-        Remove-Item -Path "$dstPath\*" -Force -Confirm:$false
-        Get-ChildItem -Path ".\src\Artifacts\Docusaurus\commands\*" -File | Copy-Item -Destination $dstPath
-
-        # Change into the repository's directory.
-        Push-Location -LiteralPath $dstBase
-
-        # Add any changes that may exist.
-        git add --all
-
-        # Commit any changes if found.
-        if (git diff --cached)
-        {
-          # Set up author details.
-          git config user.email "$env:USERNAME@psappdeploytoolkit.com"
-          git config user.name "PSAppDeployToolkit Action Workflow"
-
-          # Do the commit.
-          $commitMsg = "Commit of document changes from https://github.com/$env:GITHUB_REPOSITORY/commit/$env:GITHUB_SHA"
-          Write-Host -Object "Documents changed, committing as `"$commitMsg`""
-          git commit -a -m $commitMsg
-          if ($Global:LASTEXITCODE)
-          {
-            throw "The committing of destination repo changes failed."
-          }
-
-          # Push it to the website.
-          Write-Host -Object "Pushing committed changes to origin."
-          git push origin
-          if ($Global:LASTEXITCODE)
-          {
-            throw "The pushing of commits from destination repo failed."
-          }
-          Write-Host -Object "Successfully completed operation."
-        }
-        else
-        {
-          Write-Host -Object "Found no document changes to commit."
-        }
-
-        # Pop back to the original $PWD.
-        Pop-Location
+        & (Import-Module -Name .\src\PSAppDeployToolkit.Build -PassThru) { Invoke-ADTCustomModuleBuild -Actions 'Import-ADTReleaseModule', 'Invoke-ADTMarkdownExport', 'Invoke-ADTDocusaurusExport', 'Publish-ADTDocusaurusExport' }

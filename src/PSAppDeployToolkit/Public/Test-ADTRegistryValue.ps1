@@ -38,7 +38,7 @@ function Test-ADTRegistryValue
         Returns $true if the registry value exists, $false if it does not.
 
     .EXAMPLE
-        Test-ADTRegistryValue -Key 'HKLM:SYSTEM\CurrentControlSet\Control\Session Manager' -Name 'PendingFileRenameOperations'
+        Test-ADTRegistryValue -Key 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name 'PendingFileRenameOperations'
 
         Checks if the registry value 'PendingFileRenameOperations' exists under the specified key.
 
@@ -49,7 +49,7 @@ function Test-ADTRegistryValue
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -70,7 +70,7 @@ function Test-ADTRegistryValue
 
         [Parameter(Mandatory = $false, Position = 2)]
         [ValidateNotNullOrEmpty()]
-        [System.String]$SID = [System.Management.Automation.Language.NullString]::Value,
+        [System.Security.Principal.SecurityIdentifier]$SID,
 
         [Parameter(Mandatory = $false)]
         [System.Management.Automation.SwitchParameter]$Wow6432Node

@@ -19,21 +19,12 @@ namespace PSADT.UserInterface.DialogOptions
         /// This accepts a hashtable of parameters to ease construction on the PowerShell side of things.
         /// </summary>
         /// <param name="options"></param>
-        public HelpConsoleOptions(Hashtable options)
+        public HelpConsoleOptions(Hashtable options) : this(
+            (options ?? throw new ArgumentNullException(nameof(options)))["ExecutionPolicy"] is ExecutionPolicy executionPolicy ? executionPolicy : (ExecutionPolicy)(-1),
+            options["Modules"] is IReadOnlyList<ModuleSpecification> modules
+                ? new ReadOnlyCollection<Hashtable>([.. modules.Select(static m => new Hashtable { { "ModuleName", m.Name }, { "ModuleVersion", m.Version?.ToString() }, { "Guid", m.Guid } })])
+                : null!)
         {
-            // Nothing here is allowed to be null.
-            if (options["ExecutionPolicy"] is not ExecutionPolicy executionPolicy)
-            {
-                throw new ArgumentNullException("ExecutionPolicy value is null or invalid.", (Exception?)null);
-            }
-            if (options["Modules"] is not ReadOnlyCollection<ModuleSpecification> modules || modules.Count == 0 || modules.Any(static m => string.IsNullOrWhiteSpace(m.Name) || null == m.Guid || null == m.Version))
-            {
-                throw new ArgumentNullException("Modules value is null or invalid.", (Exception?)null);
-            }
-
-            // The hashtable was correctly defined, assign the remaining values.
-            ExecutionPolicy = executionPolicy;
-            ModuleData = modules.Select(static m => new Hashtable { { "ModuleName", m.Name }, { "ModuleVersion", m.Version.ToString() }, { "Guid", m.Guid } }).ToList().AsReadOnly();
         }
 
         /// <summary>
@@ -46,15 +37,24 @@ namespace PSADT.UserInterface.DialogOptions
         [JsonConstructor]
         private HelpConsoleOptions(ExecutionPolicy executionPolicy, ReadOnlyCollection<Hashtable> moduleData)
         {
+            if ((int)executionPolicy == -1)
+            {
+                throw new ArgumentNullException(nameof(executionPolicy), "ExecutionPolicy value is null or invalid.");
+            }
+            if (moduleData is null || moduleData.Count == 0 || moduleData.Any(static m => m["ModuleName"] is not string name || string.IsNullOrWhiteSpace(name) || m["Guid"] is null || m["ModuleVersion"] is null))
+            {
+                throw new ArgumentNullException(nameof(moduleData), "Modules value is null or invalid.");
+            }
+
             ExecutionPolicy = executionPolicy;
-            ModuleData = moduleData ?? throw new ArgumentNullException(nameof(moduleData));
+            ModuleData = moduleData;
         }
 
         /// <summary>
         /// Gets the execution policy that determines how operations are executed.
         /// </summary>
         [JsonProperty]
-        public readonly ExecutionPolicy ExecutionPolicy;
+        public ExecutionPolicy ExecutionPolicy { get; }
 
         /// <summary>
         /// Gets a read-only list of module specifications derived from the current module data.
@@ -63,7 +63,7 @@ namespace PSADT.UserInterface.DialogOptions
         /// cref="ModuleSpecification"/> instances. This property provides a snapshot of the module specifications at
         /// the time of access.</remarks>
         [JsonIgnore]
-        public IReadOnlyList<ModuleSpecification> Modules => ModuleData.Select(static m => new ModuleSpecification(m)).ToList().AsReadOnly();
+        public IReadOnlyList<ModuleSpecification> Modules => new ReadOnlyCollection<ModuleSpecification>([.. ModuleData.Select(static m => new ModuleSpecification(m))]);
 
         /// <summary>
         /// Represents a collection of module data.

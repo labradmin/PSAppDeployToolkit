@@ -121,6 +121,9 @@ function Open-ADTSession
     .PARAMETER NoProcessDetection
         When DeployMode is not specified or is Auto, bypasses DeployMode adjustment when there's no processes to close in the specified AppProcessesToClose list.
 
+    .PARAMETER AllowWowProcess
+        When specified, allows the session to initialize within a Windows on Windows (WOW) process, such as a 32-bit PowerShell instance on a 64-bit operating system.
+
     .PARAMETER PassThru
         Passes the session object through the pipeline.
 
@@ -128,7 +131,7 @@ function Open-ADTSession
         Specifies an override for the default-generated log file name.
 
     .PARAMETER SessionClass
-        Specifies an override for PSADT.Module.DeploymentSession class. Use this if you're deriving a class inheriting off PSAppDeployToolkit's base.
+        Specifies an override for PSAppDeployToolkit.SessionManagement.DeploymentSession class. Use this if you're deriving a class inheriting off PSAppDeployToolkit's base.
 
     .PARAMETER UnboundArguments
         Captures any additional arguments passed to the function.
@@ -153,7 +156,7 @@ function Open-ADTSession
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -165,15 +168,15 @@ function Open-ADTSession
     (
         [Parameter(Mandatory = $false)]
         [ValidateNotNullOrEmpty()]
-        [System.Management.Automation.SessionState]$SessionState = $PSCmdlet.SessionState,
+        [System.Management.Automation.SessionState]$SessionState,
 
         [Parameter(Mandatory = $false, HelpMessage = 'Frontend Parameter')]
         [ValidateNotNullOrEmpty()]
-        [PSADT.Module.DeploymentType]$DeploymentType,
+        [PSAppDeployToolkit.SessionManagement.DeploymentType]$DeploymentType,
 
         [Parameter(Mandatory = $false, HelpMessage = 'Frontend Parameter')]
         [ValidateNotNullOrEmpty()]
-        [PSADT.Module.DeployMode]$DeployMode,
+        [PSAppDeployToolkit.SessionManagement.DeployMode]$DeployMode,
 
         [Parameter(Mandatory = $false, HelpMessage = 'Frontend Parameter')]
         [System.Management.Automation.SwitchParameter]$SuppressRebootPassThru,
@@ -328,6 +331,9 @@ function Open-ADTSession
         [System.Management.Automation.SwitchParameter]$NoProcessDetection,
 
         [Parameter(Mandatory = $false)]
+        [System.Management.Automation.SwitchParameter]$AllowWowProcess,
+
+        [Parameter(Mandatory = $false)]
         [System.Management.Automation.SwitchParameter]$PassThru,
 
         [Parameter(Mandatory = $false)]
@@ -350,13 +356,13 @@ function Open-ADTSession
                 {
                     $PSCmdlet.ThrowTerminatingError((New-ADTValidateScriptErrorRecord -ParameterName SessionClass -ProvidedValue $_ -ExceptionMessage 'The specified input is null or empty.'))
                 }
-                if (!$_.BaseType.Equals([PSADT.Module.DeploymentSession]))
+                if (!$_.BaseType.Equals([PSAppDeployToolkit.SessionManagement.DeploymentSession]))
                 {
                     $PSCmdlet.ThrowTerminatingError((New-ADTValidateScriptErrorRecord -ParameterName SessionClass -ProvidedValue $_ -ExceptionMessage 'The specified type is not derived from the DeploymentSession base class.'))
                 }
                 return $_
             })]
-        [System.Type]$SessionClass = [PSADT.Module.DeploymentSession],
+        [System.Type]$SessionClass = [PSAppDeployToolkit.SessionManagement.DeploymentSession],
 
         [Parameter(Mandatory = $false, ValueFromRemainingArguments = $true, DontShow = $true)]
         [AllowNull()][AllowEmptyCollection()]
@@ -380,10 +386,16 @@ function Open-ADTSession
         $callerInvocation = Get-PSCallStack | Select-Object -Skip 1 | Select-Object -First 1 | & { process { $_.InvocationInfo } }
         $noExitOnClose = $callerInvocation -and !$callerInvocation.MyCommand.CommandType.Equals([System.Management.Automation.CommandTypes]::ExternalScript) -and !([System.Environment]::GetCommandLineArgs() -eq '-NonInteractive')
 
+        # Set up the SessionState if one wasn't provided.
+        if (!$PSBoundParameters.ContainsKey('SessionState'))
+        {
+            $PSBoundParameters.SessionState = $SessionState = $PSCmdlet.SessionState
+        }
+
         # Set up the ScriptDirectory if one wasn't provided.
         if (!$PSBoundParameters.ContainsKey('ScriptDirectory'))
         {
-            [System.String[]]$PSBoundParameters.ScriptDirectory = if (!$Script:ADT.Initialized -or !$Script:ADT.Directories.Script)
+            [System.String[]]$PSBoundParameters.ScriptDirectory = $ScriptDirectory = if (!$Script:ADT.Initialized -or !$Script:ADT.Directories.Script)
             {
                 if (![System.String]::IsNullOrWhiteSpace(($scriptRoot = $SessionState.PSVariable.GetValue('PSScriptRoot', $null))))
                 {
@@ -408,7 +420,7 @@ function Open-ADTSession
         }
 
         # Add any unbound arguments into $PSBoundParameters when using a derived class.
-        if ($PSBoundParameters.ContainsKey('UnboundArguments') -and !$SessionClass.Equals([PSADT.Module.DeploymentSession]))
+        if ($PSBoundParameters.ContainsKey('UnboundArguments') -and !$SessionClass.Equals([PSAppDeployToolkit.SessionManagement.DeploymentSession]))
         {
             $null = (Convert-ADTValuesFromRemainingArguments -RemainingArguments $UnboundArguments).GetEnumerator().ForEach({
                     $PSBoundParameters.Add($_.Key, $_.Value)
@@ -441,14 +453,14 @@ function Open-ADTSession
                 {
                     Initialize-ADTModule -ScriptDirectory $PSBoundParameters.ScriptDirectory
                 }
-                foreach ($callback in $($Script:ADT.Callbacks.([PSADT.Module.CallbackType]::OnStart)))
+                foreach ($callback in $($Script:ADT.Callbacks.([PSAppDeployToolkit.Foundation.CallbackType]::OnStart)))
                 {
                     & $callback
                 }
             }
 
             # Invoke pre-open callbacks.
-            foreach ($callback in $($Script:ADT.Callbacks.([PSADT.Module.CallbackType]::PreOpen)))
+            foreach ($callback in $($Script:ADT.Callbacks.([PSAppDeployToolkit.Foundation.CallbackType]::PreOpen)))
             {
                 & $callback
             }
@@ -471,7 +483,7 @@ function Open-ADTSession
         {
             try
             {
-                $adtSession = $SessionClass::new($PSBoundParameters, $noExitOnClose, $(if ($compatibilityMode) { $SessionState }))
+                $adtSession = $SessionClass::new($PSBoundParameters, $noExitOnClose, $compatibilityMode)
                 $Script:ADT.Sessions.Add($adtSession)
             }
             catch
@@ -502,7 +514,7 @@ function Open-ADTSession
             try
             {
                 # Add any unbound arguments into the $adtSession object as PSNoteProperty objects.
-                if ($PSBoundParameters.ContainsKey('UnboundArguments') -and $SessionClass.Equals([PSADT.Module.DeploymentSession]))
+                if ($PSBoundParameters.ContainsKey('UnboundArguments') -and $SessionClass.Equals([PSAppDeployToolkit.SessionManagement.DeploymentSession]))
                 {
                     (Convert-ADTValuesFromRemainingArguments -RemainingArguments $UnboundArguments).GetEnumerator() | & {
                         begin
@@ -518,7 +530,7 @@ function Open-ADTSession
                 }
 
                 # Invoke post-open callbacks.
-                foreach ($callback in $($Script:ADT.Callbacks.([PSADT.Module.CallbackType]::PostOpen)))
+                foreach ($callback in $($Script:ADT.Callbacks.([PSAppDeployToolkit.Foundation.CallbackType]::PostOpen)))
                 {
                     & $callback
                 }

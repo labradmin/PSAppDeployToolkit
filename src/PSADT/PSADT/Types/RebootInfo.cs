@@ -33,8 +33,8 @@ namespace PSADT.Types
             bool? isIntuneClientRebootPending,
             bool isAppVRebootPending,
             bool? isFileRenameRebootPending,
-            string[]? pendingFileRenameOperations,
-            ReadOnlyCollection<string> errorMsg)
+            IReadOnlyList<string>? pendingFileRenameOperations,
+            IReadOnlyList<string> errorMsg)
         {
             ComputerName = !string.IsNullOrWhiteSpace(computerName) ? computerName : throw new ArgumentNullException("Computer name cannot be null or empty.", (Exception?)null);
             LastBootUpTime = lastBootUpTime;
@@ -45,69 +45,72 @@ namespace PSADT.Types
             IsIntuneClientRebootPending = isIntuneClientRebootPending;
             IsAppVRebootPending = isAppVRebootPending;
             IsFileRenameRebootPending = isFileRenameRebootPending;
-            PendingFileRenameOperations = new ReadOnlyCollection<string>(pendingFileRenameOperations ?? []);
-            ErrorMsg = errorMsg;
+            PendingFileRenameOperations = new ReadOnlyCollection<string>(pendingFileRenameOperations?.Count > 0 ? [.. pendingFileRenameOperations] : []);
+            ErrorMsg = new ReadOnlyCollection<string>([.. errorMsg]);
         }
 
         /// <summary>
         /// Returns a value indicating whether any reboot is pending.
         /// </summary>
         /// <returns>True if any reboot is pending; otherwise false.</returns>
-        public bool HasPendingReboot() => IsSystemRebootPending || IsCBServicingRebootPending || IsWindowsUpdateRebootPending || IsSCCMClientRebootPending == true || IsAppVRebootPending || IsFileRenameRebootPending == true;
+        public bool HasPendingReboot()
+        {
+            return IsSystemRebootPending || IsCBServicingRebootPending || IsWindowsUpdateRebootPending || IsSCCMClientRebootPending == true || IsAppVRebootPending || IsFileRenameRebootPending == true;
+        }
 
         /// <summary>
         /// Gets the name of the computer.
         /// </summary>
-        public readonly string ComputerName;
+        public string ComputerName { get; }
 
         /// <summary>
         /// Gets the last boot-up time of the system.
         /// </summary>
-        public readonly DateTime LastBootUpTime;
+        public DateTime LastBootUpTime { get; }
 
         /// <summary>
         /// Gets a value indicating whether a system reboot is pending.
         /// </summary>
-        public readonly bool IsSystemRebootPending;
+        public bool IsSystemRebootPending { get; }
 
         /// <summary>
         /// Gets a value indicating whether Component-Based Servicing (CBS) requires a reboot.
         /// </summary>
-        public readonly bool IsCBServicingRebootPending;
+        public bool IsCBServicingRebootPending { get; }
 
         /// <summary>
         /// Gets a value indicating whether a Windows Update reboot is pending.
         /// </summary>
-        public readonly bool IsWindowsUpdateRebootPending;
+        public bool IsWindowsUpdateRebootPending { get; }
 
         /// <summary>
         /// Gets a value indicating whether the SCCM client requires a reboot.
         /// </summary>
-        public readonly bool? IsSCCMClientRebootPending;
+        public bool? IsSCCMClientRebootPending { get; }
 
         /// <summary>
         /// Gets a value indicating whether the Intune Management Extension client requires a reboot.
         /// </summary>
-        public readonly bool? IsIntuneClientRebootPending;
+        public bool? IsIntuneClientRebootPending { get; }
 
         /// <summary>
         /// Gets a value indicating whether an App-V client requires a reboot.
         /// </summary>
-        public readonly bool IsAppVRebootPending;
+        public bool IsAppVRebootPending { get; }
 
         /// <summary>
         /// Gets a value indicating whether file rename operations require a reboot.
         /// </summary>
-        public readonly bool? IsFileRenameRebootPending;
+        public bool? IsFileRenameRebootPending { get; }
 
         /// <summary>
         /// Gets the list of pending file rename operations.
         /// </summary>
-        public readonly IReadOnlyList<string> PendingFileRenameOperations;
+        public IReadOnlyList<string> PendingFileRenameOperations { get; }
 
         /// <summary>
         /// Gets the error messages related to reboot operations.
         /// </summary>
-        public readonly IReadOnlyList<string> ErrorMsg;
+        public IReadOnlyList<string> ErrorMsg { get; }
     }
 }

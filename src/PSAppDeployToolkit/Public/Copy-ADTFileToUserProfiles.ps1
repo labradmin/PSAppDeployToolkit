@@ -16,6 +16,9 @@ function Copy-ADTFileToUserProfiles
     .PARAMETER Path
         The path of the file or folder to copy.
 
+    .PARAMETER LiteralPath
+        The literal path of the file or folder to copy.
+
     .PARAMETER Destination
         The path of the destination folder to append to the root of the user profile.
 
@@ -58,7 +61,7 @@ function Copy-ADTFileToUserProfiles
     .INPUTS
         System.String[]
 
-        You can pipe in string values for $Path.
+        You can pipe in string values for $LiteralPath.
 
     .OUTPUTS
         None
@@ -88,21 +91,27 @@ function Copy-ADTFileToUserProfiles
     .NOTES
         An active ADT session is NOT required to use this function.
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
         https://psappdeploytoolkit.com/docs/reference/functions/Copy-ADTFileToUserProfiles
     #>
 
-    [CmdletBinding(DefaultParameterSetName = 'CalculatedProfiles')]
+    [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = 'CalculatedProfiles')]
     param (
-        [Parameter(Mandatory = $true, Position = 1, ValueFromPipeline = $true)]
+        [Parameter(Mandatory = $true, Position = 1, ParameterSetName = 'Path')]
         [ValidateNotNullOrEmpty()]
         [SupportsWildcards()]
         [System.String[]]$Path,
+
+        [Parameter(Mandatory = $true, Position = 1, ParameterSetName = 'LiteralPath', ValueFromPipeline = $true)]
+        [ValidateNotNullOrEmpty()]
+        [System.String[]]$LiteralPath,
 
         [Parameter(Mandatory = $false, Position = 2)]
         [ValidateNotNullOrEmpty()]
@@ -130,7 +139,7 @@ function Copy-ADTFileToUserProfiles
 
         [Parameter(Mandatory = $true, ParameterSetName = 'SpecifiedProfiles')]
         [ValidateNotNullOrEmpty()]
-        [PSADT.Types.UserProfile[]]$UserProfiles,
+        [PSADT.Types.UserProfileInfo[]]$UserProfiles,
 
         [Parameter(Mandatory = $false, ParameterSetName = 'CalculatedProfiles')]
         [ValidateNotNullOrEmpty()]
@@ -203,7 +212,7 @@ function Copy-ADTFileToUserProfiles
     process
     {
         # Add all source paths to the collection.
-        $sourcePaths.AddRange($Path)
+        $sourcePaths.AddRange((Get-Variable -Name $PSCmdlet.ParameterSetName -ValueOnly))
     }
 
     end
@@ -217,8 +226,11 @@ function Copy-ADTFileToUserProfiles
                 continue
             }
             $dest = (Join-Path -Path $UserProfile."$BasePath`Path" -ChildPath $Destination).Trim()
-            Write-ADTLogEntry -Message "Copying path [$Path] to $($dest):"
-            Copy-ADTFile -Path $sourcePaths -Destination $dest @CopyFileSplat
+            Write-ADTLogEntry -Message "Copying path [$sourcePaths] to $($dest):"
+            if ($PSCmdlet.ShouldProcess($dest, "Copy files from [$sourcePaths] to user profile [$($UserProfile.NTAccount)]"))
+            {
+                Copy-ADTFile -Path $sourcePaths -Destination $dest @CopyFileSplat
+            }
         }
 
         # Finalize function.

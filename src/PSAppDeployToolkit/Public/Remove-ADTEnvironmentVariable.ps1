@@ -42,16 +42,18 @@ function Remove-ADTEnvironmentVariable
     .NOTES
         An active ADT session is NOT required to use this function.
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
         https://psappdeploytoolkit.com/docs/reference/functions/Remove-ADTEnvironmentVariable
     #>
 
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param
     (
         [Parameter(Mandatory = $true)]
@@ -85,15 +87,24 @@ function Remove-ADTEnvironmentVariable
                             return
                         }
                         Write-ADTLogEntry -Message "Removing $(($logSuffix = "the environment variable [$($PSBoundParameters.Variable)] for [$($runAsActiveUser.NTAccount)]"))."
-                        Invoke-ADTClientServerOperation -RemoveEnvironmentVariable -User $runAsActiveUser -Variable $Variable
+                        if ($PSCmdlet.ShouldProcess("$($PSBoundParameters.Variable) (User: $($runAsActiveUser.NTAccount))", 'Remove environment variable'))
+                        {
+                            Invoke-ADTClientServerOperation -RemoveEnvironmentVariable -User $runAsActiveUser -Variable $Variable
+                        }
                         return;
                     }
                     Write-ADTLogEntry -Message "Removing $(($logSuffix = "the environment variable [$Variable] for [$Target]"))."
-                    [System.Environment]::SetEnvironmentVariable($Variable, $null, $Target)
+                    if ($PSCmdlet.ShouldProcess("$Variable (Target: $Target)", 'Remove environment variable'))
+                    {
+                        [PSADT.Utilities.EnvironmentUtilities]::RemoveEnvironmentVariable($Variable, $Target)
+                    }
                     return;
                 }
                 Write-ADTLogEntry -Message "Removing $(($logSuffix = "the environment variable [$Variable]"))."
-                [System.Environment]::SetEnvironmentVariable($Variable, $null)
+                if ($PSCmdlet.ShouldProcess($Variable, 'Remove environment variable'))
+                {
+                    [PSADT.Utilities.EnvironmentUtilities]::RemoveEnvironmentVariable($Variable)
+                }
                 return;
             }
             catch

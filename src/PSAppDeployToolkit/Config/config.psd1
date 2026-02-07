@@ -1,13 +1,16 @@
 ﻿@{
     Assets = @{
-        # Specify filename of the logo.
+        # Specify filename or Base64 string of the logo.
         Logo = '..\Assets\AppIcon.png'
 
-        # Specify filename of the logo (for dark mode).
+        # Specify filename or Base64 string of the logo (for dark mode).
         LogoDark = '..\Assets\AppIcon.png'
 
-        # Specify filename of the banner (Classic-only).
+        # Specify filename or Base64 string of the banner (Classic-only).
         Banner = '..\Assets\Banner.Classic.png'
+
+        # Specify optional filename or Base64 string of the tray icon.
+        TaskbarIcon = $null
     }
 
     MSI = @{
@@ -51,6 +54,9 @@
 
         # Specify if debug messages such as bound parameters passed to a function should be logged.
         LogDebugMessage = $false
+
+        # Specify the maximum amount of hierarchical structures to maintain when LogToHierarchy is true.
+        LogMaxHierarchy = 3
 
         # Specify maximum number of previous log files to retain.
         LogMaxHistory = 10

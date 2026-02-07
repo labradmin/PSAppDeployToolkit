@@ -1,6 +1,9 @@
-﻿using System;
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+using Windows.Wdk.System.Threading;
+using Windows.Win32.Foundation;
+using Windows.Win32.System.Threading;
 
 namespace PSADT.Invoke.LibraryInterfaces
 {
@@ -10,56 +13,41 @@ namespace PSADT.Invoke.LibraryInterfaces
     internal static class NtDll
     {
         /// <summary>
-        /// Contains information for a given process handle.
+        /// Retrieves basic information about the specified process using the native NtQueryInformationProcess API.
         /// </summary>
-        [StructLayout(LayoutKind.Sequential)]
-        internal struct PROCESS_BASIC_INFORMATION
+        /// <remarks>This method wraps the native NtQueryInformationProcess function to obtain basic
+        /// process information, such as the process ID and parent process ID. The method converts NTSTATUS error codes
+        /// to Win32 error codes for exception handling.</remarks>
+        /// <param name="ProcessHandle">A handle to the process for which information is to be retrieved. The handle must have appropriate access
+        /// rights, such as PROCESS_QUERY_INFORMATION.</param>
+        /// <param name="ProcessBasicInformation">When this method returns, contains a PROCESS_BASIC_INFORMATION structure with information about the
+        /// specified process.</param>
+        /// <returns>An NTSTATUS code indicating the result of the operation. A value of 0 indicates success.</returns>
+        /// <exception cref="Win32Exception">Thrown if the underlying NtQueryInformationProcess call fails. The exception's error code corresponds to the
+        /// converted NTSTATUS value.</exception>
+        internal static int NtQueryInformationProcess(SafeProcessHandle ProcessHandle, out PROCESS_BASIC_INFORMATION ProcessBasicInformation)
         {
-            internal IntPtr Reserved1;
-            internal IntPtr PebBaseAddress;
-            internal IntPtr Reserved2_0;
-            internal IntPtr Reserved2_1;
-            internal IntPtr UniqueProcessId;
-            internal IntPtr InheritedFromUniqueProcessId;
-        }
-
-        /// <summary>
-        /// Retrieves information about a process.
-        /// </summary>
-        /// <param name="processHandle"></param>
-        /// <param name="processInformation"></param>
-        /// <returns></returns>
-        /// <exception cref="Win32Exception"></exception>
-        internal static int NtQueryInformationProcess(IntPtr processHandle, out PROCESS_BASIC_INFORMATION processInformation)
-        {
-            // Import the NtQueryInformationProcess function from ntdll.dll.
-            [DllImport("ntdll.dll", ExactSpelling = true)]
-            static extern int NtQueryInformationProcess(IntPtr processHandle, PROCESSINFOCLASS processInformationClass, ref PROCESS_BASIC_INFORMATION processInformation, int processInformationLength, out int returnLength);
-
-            // Import the RtlNtStatusToDosError function from ntdll.dll to convert NT status codes to Win32 error codes.
-            [DllImport("ntdll.dll", ExactSpelling = true)]
-            static extern uint RtlNtStatusToDosError(int Status);
-
-            // Perform the query to get the process information.
-            PROCESS_BASIC_INFORMATION processInformationLocal = new();
-            var status = NtQueryInformationProcess(processHandle, PROCESSINFOCLASS.ProcessBasicInformation, ref processInformationLocal, Marshal.SizeOf(processInformationLocal), out _);
-            if (status != 0)
+            uint ReturnLengthLocal = 0; NTSTATUS res;
+            bool ProcessHandleAddRef = false;
+            try
             {
-                throw new Win32Exception((int)RtlNtStatusToDosError(status));
+                ProcessHandle.DangerousAddRef(ref ProcessHandleAddRef);
+                unsafe
+                {
+                    fixed (PROCESS_BASIC_INFORMATION* pProcessBasicInformation = &ProcessBasicInformation)
+                    {
+                        res = Windows.Wdk.PInvoke.NtQueryInformationProcess((HANDLE)ProcessHandle.DangerousGetHandle(), PROCESSINFOCLASS.ProcessBasicInformation, pProcessBasicInformation, (uint)Marshal.SizeOf<PROCESS_BASIC_INFORMATION>(), ref ReturnLengthLocal);
+                    }
+                }
             }
-            processInformation = processInformationLocal;
-            return status;
-        }
-
-        /// <summary>
-        /// Process information classes for querying and setting process information.
-        /// </summary>
-        private enum PROCESSINFOCLASS : int
-        {
-            /// <summary>
-            /// Retrieves the process basic information.
-            /// </summary>
-            ProcessBasicInformation = 0,
+            finally
+            {
+                if (ProcessHandleAddRef)
+                {
+                    ProcessHandle.DangerousRelease();
+                }
+            }
+            return res != NTSTATUS.STATUS_SUCCESS ? throw new Win32Exception((int)Windows.Win32.PInvoke.RtlNtStatusToDosError(res)) : (int)res;
         }
     }
 }

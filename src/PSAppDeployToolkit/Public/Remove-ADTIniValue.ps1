@@ -13,6 +13,8 @@ function Remove-ADTIniValue
     .DESCRIPTION
         Opens an INI file and removes the specified key or section.
 
+        Please note that the INI file provided cannot have a byte order mark (BOM) present as the underlying Win32 API cannot process it correctly.
+
     .PARAMETER FilePath
         Path to the INI file.
 
@@ -45,16 +47,18 @@ function Remove-ADTIniValue
     .NOTES
         An active ADT session is NOT required to use this function.
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
         https://psappdeploytoolkit.com/docs/reference/functions/Remove-ADTIniValue
     #>
 
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param
     (
         [Parameter(Mandatory = $true)]
@@ -100,7 +104,10 @@ function Remove-ADTIniValue
             try
             {
                 Write-ADTLogEntry -Message "Removing INI value: [Section = $Section] [Key = $Key]."
-                [PSADT.Utilities.IniUtilities]::WriteSectionKeyValue($FilePath, $Section, $Key, [NullString]::Value)
+                if ($PSCmdlet.ShouldProcess("$FilePath\$Section\$Key", 'Remove INI value'))
+                {
+                    [PSADT.Utilities.IniUtilities]::WriteSectionKeyValue($FilePath, $Section, $Key, [NullString]::Value)
+                }
             }
             catch
             {

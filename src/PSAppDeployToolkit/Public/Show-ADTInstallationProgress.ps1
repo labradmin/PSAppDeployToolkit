@@ -71,7 +71,7 @@ function Show-ADTInstallationProgress
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -142,8 +142,18 @@ function Show-ADTInstallationProgress
     {
         # Initialize function.
         Initialize-ADTFunction -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState
-        $adtStrings = Get-ADTStringTable
         $errRecord = $null
+
+        # Initialise the string table.
+        $sessionState = if ($adtSession)
+        {
+            $adtSession.SessionState
+        }
+        if ($null -eq $sessionState)
+        {
+            $sessionState = $PSCmdlet.SessionState
+        }
+        $adtStrings = Get-ADTStringTable -SessionState $SessionState
 
         # Set up DeploymentType.
         [System.String]$deploymentType = if ($adtSession)
@@ -152,7 +162,7 @@ function Show-ADTInstallationProgress
         }
         else
         {
-            [PSADT.Module.DeploymentType]::Install
+            [PSAppDeployToolkit.SessionManagement.DeploymentType]::Install
         }
 
         # Set up defaults if not specified.
@@ -221,6 +231,7 @@ function Show-ADTInstallationProgress
                         AppIconImage = $adtConfig.Assets.Logo
                         AppIconDarkImage = $adtConfig.Assets.LogoDark
                         AppBannerImage = $adtConfig.Assets.Banner
+                        AppTaskbarIconImage = $adtConfig.Assets.TaskbarIcon
                         DialogTopMost = !$NotTopMost
                         Language = $Script:ADT.Language
                         ProgressMessageText = $PSBoundParameters.StatusMessage

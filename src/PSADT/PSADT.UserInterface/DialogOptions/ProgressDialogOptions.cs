@@ -15,39 +15,25 @@ namespace PSADT.UserInterface.DialogOptions
         /// Initializes a new instance of the <see cref="ProgressDialogOptions"/> class.
         /// </summary>
         /// <param name="options"></param>
-        public ProgressDialogOptions(Hashtable options) : base(options)
+        public ProgressDialogOptions(Hashtable options) : this(
+            (options ?? throw new ArgumentNullException(nameof(options)))["AppTitle"] is string appTitle ? appTitle : string.Empty,
+            options["Subtitle"] is string subtitle ? subtitle : string.Empty,
+            options["AppIconImage"] is string appIconImage ? appIconImage : string.Empty,
+            options["AppIconDarkImage"] is string appIconDarkImage ? appIconDarkImage : string.Empty,
+            options["AppBannerImage"] is string appBannerImage ? appBannerImage : string.Empty,
+            options["AppTaskbarIconImage"] is string appTaskbarIconImage ? appTaskbarIconImage : null,
+            options["DialogTopMost"] is bool dialogTopMost && dialogTopMost,
+            options["Language"] is CultureInfo language ? language : null!,
+            options["FluentAccentColor"] is int fluentAccentColor ? fluentAccentColor : null,
+            options["DialogPosition"] is DialogPosition dialogPosition ? dialogPosition : null,
+            options["DialogAllowMove"] is bool dialogAllowMove ? dialogAllowMove : null,
+            options["DialogExpiryDuration"] is TimeSpan dialogExpiryDuration ? dialogExpiryDuration : null,
+            options["DialogPersistInterval"] is TimeSpan dialogPersistInterval ? dialogPersistInterval : null,
+            options["ProgressMessageText"] is string progressMessageText ? progressMessageText : string.Empty,
+            options["ProgressDetailMessageText"] is string progressDetailMessageText ? progressDetailMessageText : string.Empty,
+            options["ProgressPercentage"] is double progressPercentage ? progressPercentage : null,
+            options["MessageAlignment"] is DialogMessageAlignment messageAlignment ? messageAlignment : null)
         {
-            // Nothing here is allowed to be null.
-            if (options["ProgressMessageText"] is not string progressMessageText || string.IsNullOrWhiteSpace(progressMessageText))
-            {
-                throw new ArgumentNullException("ProgressMessageText value is null or invalid.", (Exception?)null);
-            }
-            if (options["ProgressDetailMessageText"] is not string progressDetailMessageText || string.IsNullOrWhiteSpace(progressDetailMessageText))
-            {
-                throw new ArgumentNullException("ProgressDetailMessageText value is null or invalid.", (Exception?)null);
-            }
-
-            // Test and set optional values.
-            if (options.ContainsKey("ProgressPercentage"))
-            {
-                if (options["ProgressPercentage"] is not double progressPercentage)
-                {
-                    throw new ArgumentOutOfRangeException("ProgressPercentage value is not valid.", (Exception?)null);
-                }
-                ProgressPercentage = progressPercentage;
-            }
-            if (options.ContainsKey("MessageAlignment"))
-            {
-                if (options["MessageAlignment"] is not DialogMessageAlignment messageAlignment)
-                {
-                    throw new ArgumentOutOfRangeException("MessageAlignment value is not valid.", (Exception?)null);
-                }
-                MessageAlignment = messageAlignment;
-            }
-
-            // The hashtable was correctly defined, assign the remaining values.
-            ProgressMessageText = progressMessageText;
-            ProgressDetailMessageText = progressDetailMessageText;
         }
 
         /// <summary>
@@ -59,6 +45,8 @@ namespace PSADT.UserInterface.DialogOptions
         /// <param name="appIconImage">The path or identifier for the application's icon image used in the dialog.</param>
         /// <param name="appIconDarkImage">The path or identifier for the application's dark mode icon image used in the dialog.</param>
         /// <param name="appBannerImage">The path or identifier for the banner image displayed in the dialog.</param>
+        /// <param name="appTaskbarIconImage">The path or identifier for the application's tray icon image used in the dialog. If <see langword="null"/>,
+        /// the default tray icon is used.</param>
         /// <param name="dialogTopMost">A value indicating whether the dialog should always appear on top of other windows.</param>
         /// <param name="language">The culture information used for localizing the dialog.</param>
         /// <param name="fluentAccentColor">The accent color used for Fluent design elements in the dialog. If <see langword="null"/>, the default
@@ -79,10 +67,19 @@ namespace PSADT.UserInterface.DialogOptions
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="progressMessageText"/> or <paramref name="progressDetailMessageText"/> is <see
         /// langword="null"/>.</exception>
         [JsonConstructor]
-        private ProgressDialogOptions(string appTitle, string subtitle, string appIconImage, string appIconDarkImage, string appBannerImage, bool dialogTopMost, CultureInfo language, int? fluentAccentColor, DialogPosition? dialogPosition, bool? dialogAllowMove, TimeSpan? dialogExpiryDuration, TimeSpan? dialogPersistInterval, string progressMessageText, string progressDetailMessageText, double? progressPercentage, DialogMessageAlignment? messageAlignment) : base(appTitle, subtitle, appIconImage, appIconDarkImage, appBannerImage, dialogTopMost, language, fluentAccentColor, dialogPosition, dialogAllowMove, dialogExpiryDuration, dialogPersistInterval)
+        private ProgressDialogOptions(string appTitle, string subtitle, string appIconImage, string appIconDarkImage, string appBannerImage, string? appTaskbarIconImage, bool dialogTopMost, CultureInfo language, int? fluentAccentColor, DialogPosition? dialogPosition, bool? dialogAllowMove, TimeSpan? dialogExpiryDuration, TimeSpan? dialogPersistInterval, string progressMessageText, string progressDetailMessageText, double? progressPercentage, DialogMessageAlignment? messageAlignment) : base(appTitle, subtitle, appIconImage, appIconDarkImage, appBannerImage, appTaskbarIconImage, dialogTopMost, language, fluentAccentColor, dialogPosition, dialogAllowMove, dialogExpiryDuration, dialogPersistInterval)
         {
-            ProgressMessageText = progressMessageText ?? throw new ArgumentNullException(nameof(progressMessageText));
-            ProgressDetailMessageText = progressDetailMessageText ?? throw new ArgumentNullException(nameof(progressDetailMessageText));
+            if (string.IsNullOrWhiteSpace(progressMessageText))
+            {
+                throw new ArgumentNullException(nameof(progressMessageText), "ProgressMessageText value is null or invalid.");
+            }
+            if (string.IsNullOrWhiteSpace(progressDetailMessageText))
+            {
+                throw new ArgumentNullException(nameof(progressDetailMessageText), "ProgressDetailMessageText value is null or invalid.");
+            }
+
+            ProgressMessageText = progressMessageText;
+            ProgressDetailMessageText = progressDetailMessageText;
             ProgressPercentage = progressPercentage;
             MessageAlignment = messageAlignment;
         }
@@ -91,24 +88,24 @@ namespace PSADT.UserInterface.DialogOptions
         /// The message to be displayed in the progress dialog, indicating the current status or action being performed.
         /// </summary>
         [JsonProperty]
-        public readonly string ProgressMessageText;
+        public string ProgressMessageText { get; }
 
         /// <summary>
         /// The detailed message to be displayed in the progress dialog, providing more context or information about the current action.
         /// </summary>
         [JsonProperty]
-        public readonly string ProgressDetailMessageText;
+        public string ProgressDetailMessageText { get; }
 
         /// <summary>
         /// The percentage value to be displayed on the status bar, if available.
         /// </summary>
         [JsonProperty]
-        public readonly double? ProgressPercentage;
+        public double? ProgressPercentage { get; }
 
         /// <summary>
         /// The alignment of the message text in the dialog.
         /// </summary>
         [JsonProperty]
-        public readonly DialogMessageAlignment? MessageAlignment;
+        public DialogMessageAlignment? MessageAlignment { get; }
     }
 }

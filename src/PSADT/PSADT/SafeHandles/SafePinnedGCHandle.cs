@@ -1,30 +1,32 @@
 ﻿using System.Runtime.InteropServices;
+using PSADT.LibraryInterfaces.SafeHandles;
 
 namespace PSADT.SafeHandles
 {
     /// <summary>
     /// Represents a wrapper for a <see cref="GCHandle"/> that pins an object in memory.
     /// </summary>
-    internal sealed class SafePinnedGCHandle : SafeMemoryHandle
+    internal sealed class SafePinnedGCHandle : SafeMemoryHandle<SafePinnedGCHandle>
     {
         /// <summary>
         /// Allocates a new <see cref="SafePinnedGCHandle"/> for the specified object, pinning it in memory.
         /// </summary>
         /// <param name="value"></param>
         /// <returns></returns>
-        internal static SafePinnedGCHandle Alloc(object value)
+        internal static SafePinnedGCHandle Alloc<T>(T[] value)
         {
-            return new(GCHandle.Alloc(value, GCHandleType.Pinned), true);
+            return new(GCHandle.Alloc(value, GCHandleType.Pinned), Marshal.SizeOf<T>() * value.Length, true);
         }
 
         /// <summary>
         /// Constructs a new instance of the <see cref="SafePinnedGCHandle"/> class with the specified <see cref="GCHandle"/>.
         /// </summary>
         /// <param name="handle"></param>
+        /// <param name="length"></param>
         /// <param name="ownsHandle"></param>
-        private SafePinnedGCHandle(GCHandle handle, bool ownsHandle) : base(handle.AddrOfPinnedObject(), 0, ownsHandle)
+        private SafePinnedGCHandle(GCHandle handle, int length, bool ownsHandle) : base(handle.AddrOfPinnedObject(), length, ownsHandle)
         {
-            gcHandle = handle;
+            pinnedHandle = handle;
         }
 
         /// <summary>
@@ -33,13 +35,13 @@ namespace PSADT.SafeHandles
         /// <returns></returns>
         protected override bool ReleaseHandle()
         {
-            gcHandle.Free();
+            pinnedHandle.Free();
             return true;
         }
 
         /// <summary>
         /// The underlying <see cref="GCHandle"/> that holds the pinned object.
         /// </summary>
-        private readonly GCHandle gcHandle;
+        private readonly GCHandle pinnedHandle;
     }
 }

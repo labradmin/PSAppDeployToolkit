@@ -44,16 +44,18 @@ function Copy-ADTContentToCache
 
         This can be done using `Remove-ADTFile -LiteralPath "(Get-ADTConfig).Toolkit.CachePath\$($adtSession.InstallName)" -Recurse -ErrorAction Ignore`.
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
         https://psappdeploytoolkit.com/docs/reference/functions/Copy-ADTContentToCache
     #>
 
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param
     (
         [Parameter(Mandatory = $false)]
@@ -82,6 +84,10 @@ function Copy-ADTContentToCache
         if (!(Test-Path -LiteralPath $LiteralPath -PathType Container))
         {
             Write-ADTLogEntry -Message "Creating cache folder [$LiteralPath]."
+            if (!$PSCmdlet.ShouldProcess($LiteralPath, 'Create cache folder'))
+            {
+                return
+            }
             try
             {
                 try
@@ -106,11 +112,23 @@ function Copy-ADTContentToCache
 
         # Copy the toolkit content to the cache folder.
         Write-ADTLogEntry -Message "Copying toolkit content to cache folder [$LiteralPath]."
+        if (!$PSCmdlet.ShouldProcess($LiteralPath, "Copy toolkit content from [$scriptDir]"))
+        {
+            return
+        }
         try
         {
             try
             {
-                Copy-ADTFile -Path (Join-Path -Path $scriptDir -ChildPath *) -Destination $LiteralPath -Recurse
+                # Check if source and destination are the same (already running from cache)
+                if ((Resolve-Path $scriptDir).Path -eq (Resolve-Path $LiteralPath).Path)
+                {
+                    Write-ADTLogEntry -Message "Source and destination are the same path [$LiteralPath]. Skipping copy operation."
+                }
+                else
+                {
+                    Copy-ADTFile -Path (Join-Path -Path $scriptDir -ChildPath *) -Destination $LiteralPath -Recurse
+                }
                 $adtSession.DirFiles = Join-Path -Path $LiteralPath -ChildPath Files
                 $adtSession.DirSupportFiles = Join-Path -Path $LiteralPath -ChildPath SupportFiles
             }

@@ -19,7 +19,7 @@ namespace PSADT.ProcessManagement
         }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="ProcessObject"/> struct.
+        /// Initializes a new instance of the <see cref="ProcessDefinition"/> struct.
         /// </summary>
         /// <param name="name">The name of the process.</param>
         /// <param name="description">The description of the process.</param>
@@ -30,10 +30,10 @@ namespace PSADT.ProcessManagement
         }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="ProcessObject"/> struct.
+        /// Initializes a new instance of the <see cref="ProcessDefinition"/> struct.
         /// </summary>
         /// <param name="properties">The hashtable with a process's name, and optionally a description.</param>
-        public ProcessDefinition(Hashtable properties) : this((string)properties["Name"]!, (string)properties["Description"]!)
+        public ProcessDefinition(Hashtable properties) : this((properties ?? throw new ArgumentNullException(nameof(properties)))["Name"] is string name ? name : string.Empty, properties["Description"] is string description ? description : string.Empty)
         {
         }
 
@@ -41,17 +41,17 @@ namespace PSADT.ProcessManagement
         /// Gets the name of the process.
         /// </summary>
         [JsonProperty]
-        public readonly string Name;
+        public string Name { get; }
 
         /// <summary>
         /// Gets the description of the process.
         /// </summary>
         [JsonProperty]
-        public readonly string? Description;
+        public string? Description { get; }
 
         /// <summary>
         /// Gets the filter script for the process.
         /// </summary>
-        public readonly Func<RunningProcess, bool>? Filter;
+        public Func<RunningProcessInfo, bool>? Filter { get; }
     }
 }

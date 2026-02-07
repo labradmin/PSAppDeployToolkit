@@ -52,43 +52,45 @@ function Set-ADTRegistryKey
         This function does not return any output.
 
     .EXAMPLE
-        Set-ADTRegistryKey -Key $blockedAppPath -Name 'Debugger' -Value $blockedAppDebuggerValue
+        Set-ADTRegistryKey -LiteralPath $blockedAppPath -Name 'Debugger' -Value $blockedAppDebuggerValue
 
         Creates or sets the 'Debugger' value in the specified registry key.
 
     .EXAMPLE
-        Set-ADTRegistryKey -Key 'HKEY_LOCAL_MACHINE\SOFTWARE' -Name 'Application' -Type 'DWord' -Value '1'
+        Set-ADTRegistryKey -LiteralPath 'HKEY_LOCAL_MACHINE\SOFTWARE' -Name 'Application' -Type 'DWord' -Value '1'
 
         Creates or sets a DWord value in the specified registry key.
 
     .EXAMPLE
-        Set-ADTRegistryKey -Key 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' -Name 'Debugger' -Value $blockedAppDebuggerValue -Type String
+        Set-ADTRegistryKey -LiteralPath 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' -Name 'Debugger' -Value $blockedAppDebuggerValue -Type String
 
         Creates or sets a String value in the specified registry key.
 
     .EXAMPLE
-        Set-ADTRegistryKey -Key 'HKCU\Software\Microsoft\Example' -Name 'Data' -Value (0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x02,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x02,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x00,0x01,0x01,0x01,0x02,0x02,0x02) -Type 'Binary'
+        Set-ADTRegistryKey -LiteralPath 'HKCU\Software\Microsoft\Example' -Name 'Data' -Value (0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x02,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x02,0x01,0x01,0x01,0x01,0x01,0x01,0x01,0x00,0x01,0x01,0x01,0x02,0x02,0x02) -Type 'Binary'
 
         Creates or sets a Binary value in the specified registry key.
 
     .EXAMPLE
-        Set-ADTRegistryKey -Key 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Example' -Name '(Default)' -Value "Text"
+        Set-ADTRegistryKey -LiteralPath 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Example' -Name '(Default)' -Value "Text"
 
         Creates or sets the default value in the specified registry key.
 
     .NOTES
         An active ADT session is NOT required to use this function.
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
         https://psappdeploytoolkit.com/docs/reference/functions/Set-ADTRegistryKey
     #>
 
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param
     (
         [Parameter(Mandatory = $true, HelpMessage = 'New/Set-ItemProperty parameter')]
@@ -120,7 +122,7 @@ function Set-ADTRegistryKey
 
         [Parameter(Mandatory = $false)]
         [ValidateNotNullOrEmpty()]
-        [System.String]$SID
+        [System.Security.Principal.SecurityIdentifier]$SID
     )
 
     begin
@@ -148,12 +150,15 @@ function Set-ADTRegistryKey
                 if (!(Test-Path -LiteralPath $LiteralPath))
                 {
                     Write-ADTLogEntry -Message "Creating registry key [$LiteralPath]."
-                    $provider, $subkey = [System.Text.RegularExpressions.Regex]::Matches($LiteralPath, '^(.+::[a-zA-Z_]+)\\(.+)$').Groups[1..2].Value
-                    $regKey = Get-Item -LiteralPath $provider
-                    $null = $regKey.CreateSubKey($subkey, [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree, $RegistryOptions)
-                    $regKey.Close()
-                    $regKey.Dispose()
-                    $regKey = $null
+                    if ($PSCmdlet.ShouldProcess($LiteralPath, 'Create registry key'))
+                    {
+                        $provider, $subkey = [System.Text.RegularExpressions.Regex]::Matches($LiteralPath, '^(.+::[a-zA-Z_]+)\\(.+)$').Groups[1..2].Value
+                        $regKey = Get-Item -LiteralPath $provider
+                        $null = $regKey.CreateSubKey($subkey, [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree, $RegistryOptions)
+                        $regKey.Close()
+                        $regKey.Dispose()
+                        $regKey = $null
+                    }
                 }
 
                 # If a name was provided, set the appropriate ItemProperty up.
@@ -166,6 +171,10 @@ function Set-ADTRegistryKey
                     $null = if (($gipResults = Get-ItemProperty -LiteralPath $LiteralPath -Name $Name -ErrorAction Ignore))
                     {
                         Write-ADTLogEntry -Message "Updating registry key value: [$LiteralPath] [$Name = $Value]."
+                        if (!$PSCmdlet.ShouldProcess("$LiteralPath\$Name", "Update registry value to [$Value]"))
+                        {
+                            return
+                        }
                         if (!$ipParams.ContainsKey('Value')) { $ipParams.Add('Value', $null) }
                         if (($null -ne $ipParams.Value) -and ($Type -eq [Microsoft.Win32.RegistryValueKind]::MultiString) -and ($MultiStringValueMode -ne [PSADT.RegistryManagement.MultiStringValueMode]::Replace))
                         {
@@ -188,7 +197,10 @@ function Set-ADTRegistryKey
                     else
                     {
                         Write-ADTLogEntry -Message "Setting registry key value: [$LiteralPath] [$Name = $Value]."
-                        New-ItemProperty @ipParams
+                        if ($PSCmdlet.ShouldProcess("$LiteralPath\$Name", "Set registry value to [$Value]"))
+                        {
+                            New-ItemProperty @ipParams
+                        }
                     }
                 }
             }

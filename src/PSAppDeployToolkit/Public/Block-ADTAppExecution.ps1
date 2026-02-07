@@ -19,7 +19,7 @@ function Block-ADTAppExecution
         4) Modifies the "Image File Execution Options" registry key for the specified process(s) to call `Show-ADTInstallationPrompt` with the appropriate messaging via this module.
         5) When the script is called with those parameters, it will display a custom message to the user to indicate that execution of the application has been blocked while the installation is in progress. The text of this message can be customized in the strings.psd1 file.
 
-    .PARAMETER ProcessName
+    .PARAMETER Processes
         Name of the process or processes separated by commas.
 
     .PARAMETER WindowLocation
@@ -36,7 +36,7 @@ function Block-ADTAppExecution
         This function does not generate any output.
 
     .EXAMPLE
-        Block-ADTAppExecution -ProcessName ('winword','excel')
+        Block-ADTAppExecution -Processes ('winword','excel')
 
         This example blocks the execution of Microsoft Word and Excel.
 
@@ -45,21 +45,24 @@ function Block-ADTAppExecution
 
         It is used when the -BlockExecution parameter is specified with the Show-ADTInstallationWelcome function to block applications.
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
         https://psappdeploytoolkit.com/docs/reference/functions/Block-ADTAppExecution
     #>
 
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param
     (
         [Parameter(Mandatory = $true, HelpMessage = 'Specify process names, separated by commas.')]
         [ValidateNotNullOrEmpty()]
-        [System.String[]]$ProcessName,
+        [Alias('ProcessName')]
+        [PSADT.ProcessManagement.ProcessDefinition[]]$Processes,
 
         [Parameter(Mandatory = $false, HelpMessage = 'The location of the dialog on the screen.')]
         [ValidateNotNullOrEmpty()]
@@ -68,20 +71,32 @@ function Block-ADTAppExecution
 
     begin
     {
-        # Get everything we need before commencing.
+        # Confirm we've got an active session before proceeding.
         try
         {
             $adtSession = Get-ADTSession
-            $adtEnv = Get-ADTEnvironmentTable
-            $adtConfig = Get-ADTConfig
-            $adtStrings = Get-ADTStringTable
         }
         catch
         {
             $PSCmdlet.ThrowTerminatingError($_)
         }
+
+        # Initialise function.
         Initialize-ADTFunction -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState
         $taskName = $adtEnv.InvalidScheduledTaskNameCharsRegExPattern.Replace("$($adtEnv.appDeployToolkitName)_$($adtSession.InstallName)_BlockedApps", [System.String]::Empty)
+        $adtEnv = Get-ADTEnvironmentTable
+        $adtConfig = Get-ADTConfig
+
+        # Initialise the string table.
+        $sessionState = if ($adtSession)
+        {
+            $adtSession.SessionState
+        }
+        if ($null -eq $sessionState)
+        {
+            $sessionState = $PSCmdlet.SessionState
+        }
+        $adtStrings = Get-ADTStringTable -SessionState $SessionState
     }
 
     process
@@ -92,7 +107,7 @@ function Block-ADTAppExecution
             Write-ADTLogEntry -Message "Bypassing Function [$($MyInvocation.MyCommand.Name)], because [User: $($adtEnv.ProcessNTAccount)] is not admin."
             return
         }
-        Write-ADTLogEntry -Message "Preparing to block execution of the following processes: ['$([System.String]::Join("', '", $ProcessName))']."
+        Write-ADTLogEntry -Message "Preparing to block execution of the following processes: ['$([System.String]::Join("', '", $Processes.Name))']."
 
         try
         {
@@ -113,7 +128,7 @@ function Block-ADTAppExecution
                         Write-ADTLogEntry -Message "There is no active logged on user. Verifying client/server access permissions using [BUILTIN\Users]."
                         $usersSid = [PSADT.AccountManagement.AccountUtilities]::GetWellKnownSid([System.Security.Principal.WellKnownSidType]::BuiltinUsersSid)
                         $usersNtAccount = $usersSid.Translate([System.Security.Principal.NTAccount]); $usersSessionId = [System.UInt32]::MaxValue
-                        Set-ADTClientServerProcessPermissions -User ([PSADT.Module.RunAsActiveUser]::new($usersNtAccount, $usersSid, $usersSessionId))
+                        Set-ADTClientServerProcessPermissions -User ([PSADT.Foundation.RunAsActiveUser]::new($usersNtAccount, $usersSid, $usersSessionId, $false))
                     }
                     else
                     {
@@ -128,12 +143,13 @@ function Block-ADTAppExecution
                     AppIconImage = $adtConfig.Assets.Logo
                     AppIconDarkImage = $adtConfig.Assets.LogoDark
                     AppBannerImage = $adtConfig.Assets.Banner
+                    AppTaskbarIconImage = $adtConfig.Assets.TaskbarIcon
                     DialogTopMost = $true
                     Language = $Script:ADT.Language
                     MinimizeWindows = $false
                     DialogExpiryDuration = [System.TimeSpan]::FromSeconds($adtConfig.UI.DefaultTimeout)
                     MessageText = $adtStrings.BlockExecutionText.Message.($adtSession.DeploymentType.ToString())
-                    ButtonRightText = [PSADT.UserInterface.Dialogs.DialogTools]::BlockExecutionButtonText
+                    ButtonRightText = [PSADT.UserInterface.DialogManager]::BlockExecutionButtonText
                     Icon = [PSADT.UserInterface.Dialogs.DialogSystemIcon]::Warning
                 }
                 if ($PSBoundParameters.ContainsKey('WindowLocation'))
@@ -153,8 +169,8 @@ function Block-ADTAppExecution
                 $blockExecArgs.Add('BlockExecution', $true)
 
                 # Store the BlockExection command in the registry due to IFEO length issues when > 255 chars.
-                $blockExecRegPath = "Microsoft.PowerShell.Core\Registry::HKEY_LOCAL_MACHINE\SOFTWARE\$($adtEnv.appDeployToolkitName)"; $blockExecRegName = 'BlockExecutionCommand'
-                $blockExecDbgPath = "`"$($Script:PSScriptRoot)\lib\PSADT.ClientServer.Client.Launcher.exe`" /smd -ArgV $($blockExecRegPath.Split('::', [System.StringSplitOptions]::RemoveEmptyEntries)[1])\$blockExecRegName"
+                $blockExecRegPath = "Microsoft.PowerShell.Core\Registry::HKEY_LOCAL_MACHINE\SOFTWARE\$($adtEnv.appDeployToolkitName)"; $blockExecRegName = [PSADT.UserInterface.DialogManager]::BlockExecutionRegistryKeyName
+                $blockExecDbgPath = "`"$($Script:PSScriptRoot)\lib\PSADT.ClientServer.Client.Launcher.exe`" /smd -ArgV $($blockExecRegPath.Split('::')[1])\$blockExecRegName"
 
                 # If the IFEO path is > 255 characters, warn about it and bomb out.
                 if ($blockExecDbgPath -gt 255)
@@ -162,10 +178,14 @@ function Block-ADTAppExecution
                     Write-ADTLogEntry -Message "The generated block execution command of [$blockExecDbgPath] exceeds the maximum allowable length of 255 characters; unable to block execution." -Severity Warning
                     return
                 }
-                Set-ADTRegistryKey -Key $blockExecRegPath -Name $blockExecRegName -Value ([PSADT.ClientServer.DataSerialization]::SerializeToString($blockExecArgs)) -InformationAction SilentlyContinue
+                Set-ADTRegistryKey -Key $blockExecRegPath -Name $blockExecRegName -Value ([PSADT.ClientServer.DataSerialization]::SerializeToString([System.Collections.ObjectModel.ReadOnlyDictionary[System.String, System.String]]$blockExecArgs)) -InformationAction SilentlyContinue
 
                 # Create a scheduled task to run on startup to call this script and clean up blocked applications in case the installation is interrupted, e.g. user shuts down during installation"
                 Write-ADTLogEntry -Message 'Creating scheduled task to cleanup blocked applications in case the installation is interrupted.'
+                if (!$PSCmdlet.ShouldProcess("Scheduled Task [$taskName]", 'Create'))
+                {
+                    return
+                }
                 try
                 {
                     $nstParams = @{
@@ -183,9 +203,13 @@ function Block-ADTAppExecution
                 }
 
                 # Enumerate each process and set the debugger value to block application execution.
-                foreach ($process in $ProcessName)
+                foreach ($process in $Processes.Name)
                 {
                     Write-ADTLogEntry -Message "Setting the Image File Execution Option registry key to block execution of [$process]."
+                    if (!$PSCmdlet.ShouldProcess("Process [$process]", 'Block execution'))
+                    {
+                        continue
+                    }
                     if ([System.IO.Path]::IsPathRooted($process))
                     {
                         $basePath = "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$($process -replace '^.+\\')"

@@ -25,7 +25,7 @@ function Write-ADTLogEntry
     .PARAMETER ScriptSection
         The heading for the portion of the script that is being executed.
 
-    .PARAMETER LogType
+    .PARAMETER LogStyle
         Choose whether to write a CMTrace.exe compatible log file or a Legacy text log file.
 
     .PARAMETER LogFileDirectory
@@ -34,7 +34,7 @@ function Write-ADTLogEntry
     .PARAMETER LogFileName
         Set the name of the log file.
 
-    .PARAMETER HostLogStream
+    .PARAMETER HostLogStreamType
         Controls how the log entry is written to the console window.
 
     .PARAMETER PassThru
@@ -49,7 +49,7 @@ function Write-ADTLogEntry
         The message to write to the log file or output to the console.
 
     .OUTPUTS
-        PSADT.Module.LogEntry[]
+        PSAppDeployToolkit.Logging.LogEntry[]
 
         This function returns the provided output if -PassThru is specified.
 
@@ -68,7 +68,7 @@ function Write-ADTLogEntry
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -84,7 +84,7 @@ function Write-ADTLogEntry
 
         [Parameter(Mandatory = $false)]
         [ValidateNotNullOrEmpty()]
-        [PSADT.Module.LogSeverity]$Severity,
+        [PSAppDeployToolkit.Logging.LogSeverity]$Severity,
 
         [Parameter(Mandatory = $false)]
         [ValidateNotNullOrEmpty()]
@@ -96,7 +96,8 @@ function Write-ADTLogEntry
 
         [Parameter(Mandatory = $false)]
         [ValidateNotNullOrEmpty()]
-        [PSADT.Module.LogStyle]$LogType,
+        [Alias('LogType')]
+        [PSAppDeployToolkit.Logging.LogStyle]$LogStyle,
 
         [Parameter(Mandatory = $false)]
         [ValidateNotNullOrEmpty()]
@@ -108,7 +109,7 @@ function Write-ADTLogEntry
 
         [Parameter(Mandatory = $false)]
         [ValidateNotNullOrEmpty()]
-        [PSADT.Module.HostLogStream]$HostLogStream,
+        [PSAppDeployToolkit.Logging.HostLogStreamType]$HostLogStreamType,
 
         [Parameter(Mandatory = $false)]
         [System.Management.Automation.SwitchParameter]$PassThru,
@@ -125,10 +126,10 @@ function Write-ADTLogEntry
         # Set up collector for piped in messages.
         $messages = [System.Collections.Generic.List[System.String]]::new()
 
-        # Force the HostLogStream to none if InformationPreference or WarningPreference is silent.
+        # Force the HostLogStreamType to none if InformationPreference or WarningPreference is silent.
         $bypassSession = if ((($Severity -le 1) -and ($InformationPreference -match '^(SilentlyContinue|Ignore)$')) -or (($Severity -eq 2) -and ($WarningPreference -match '^(SilentlyContinue|Ignore)$')))
         {
-            !($PSBoundParameters.HostLogStream = $HostLogStream = [PSADT.Module.HostLogStream]::None)
+            !($PSBoundParameters.HostLogStreamType = $HostLogStreamType = [PSAppDeployToolkit.Logging.HostLogStreamType]::None)
         }
     }
 
@@ -165,26 +166,26 @@ function Write-ADTLogEntry
                 $(if ($PSBoundParameters.ContainsKey('ScriptSection')) { $ScriptSection }),
                 $(if ($PSBoundParameters.ContainsKey('LogFileDirectory')) { $LogFileDirectory }),
                 $(if ($PSBoundParameters.ContainsKey('LogFileName')) { $LogFileName }),
-                $(if ($PSBoundParameters.ContainsKey('LogType')) { $LogType }),
-                $HostLogStream
+                $(if ($PSBoundParameters.ContainsKey('LogStyle')) { $LogStyle }),
+                $HostLogStreamType
             )
         }
         elseif (!$DebugMessage)
         {
-            if ($PSBoundParameters.ContainsKey('LogFileDirectory') -and $PSBoundParameters.ContainsKey('LogFileName') -and !$PSBoundParameters.ContainsKey('LogType') -and !(Test-ADTModuleInitialized))
+            if ($PSBoundParameters.ContainsKey('LogFileDirectory') -and $PSBoundParameters.ContainsKey('LogFileName') -and !$PSBoundParameters.ContainsKey('LogStyle') -and !(Test-ADTModuleInitialized))
             {
                 Initialize-ADTModule
             }
-            [PSADT.Module.LogUtilities]::WriteLogEntry(
+            [PSAppDeployToolkit.Logging.LogUtilities]::WriteLogEntry(
                 $messages,
-                $(if ($PSBoundParameters.ContainsKey('HostLogStream')) { $HostLogStream } else { ([PSADT.Module.HostLogStream]::None, [PSADT.Module.HostLogStream]::Verbose)[$VerbosePreference.Equals([System.Management.Automation.ActionPreference]::Continue)] }),
+                $(if ($PSBoundParameters.ContainsKey('HostLogStreamType')) { $HostLogStreamType } else { ([PSAppDeployToolkit.Logging.HostLogStreamType]::None, [PSAppDeployToolkit.Logging.HostLogStreamType]::Verbose)[$VerbosePreference.Equals([System.Management.Automation.ActionPreference]::Continue)] }),
                 $false,
                 $(if ($PSBoundParameters.ContainsKey('Severity')) { $Severity }),
                 $(if ($PSBoundParameters.ContainsKey('Source')) { $Source }),
                 $(if ($PSBoundParameters.ContainsKey('ScriptSection')) { $ScriptSection }),
                 $(if ($PSBoundParameters.ContainsKey('LogFileDirectory')) { $LogFileDirectory }),
                 $(if ($PSBoundParameters.ContainsKey('LogFileName')) { $LogFileName }),
-                $(if ($PSBoundParameters.ContainsKey('LogType')) { $LogType })
+                $(if ($PSBoundParameters.ContainsKey('LogStyle')) { $LogStyle })
             )
         }
         if ($PassThru -and $logEntries)

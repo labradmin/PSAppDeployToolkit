@@ -1,8 +1,10 @@
 ﻿using System;
-using System.Diagnostics;
-using PSADT.Extensions;
+using System.IO;
 using PSADT.LibraryInterfaces;
+using PSADT.LibraryInterfaces.Extensions;
+using PSADT.ProcessManagement;
 using Windows.Win32;
+using Windows.Win32.Foundation;
 using Windows.Win32.Media.Audio;
 using Windows.Win32.System.Com;
 using Windows.Win32.System.SystemInformation;
@@ -29,17 +31,18 @@ namespace PSADT.DeviceManagement
             catch
             {
                 return false;
+                throw;
             }
 
             // Activate the session manager for the capture device and enumerate through each session.
-            microphoneDevice.Activate<IAudioSessionManager2>(CLSCTX.CLSCTX_INPROC_SERVER, null, out var sessionManagerObj);
-            var sessionEnumerator = sessionManagerObj.GetSessionEnumerator();
-            sessionEnumerator.GetCount(out var sessionCount);
+            microphoneDevice.Activate(CLSCTX.CLSCTX_INPROC_SERVER, null, out IAudioSessionManager2 sessionManagerObj);
+            IAudioSessionEnumerator sessionEnumerator = sessionManagerObj.GetSessionEnumerator();
+            sessionEnumerator.GetCount(out int sessionCount);
             for (int i = 0; i < sessionCount; i++)
             {
                 // Check if the session state is active.
-                sessionEnumerator.GetSession(i, out var sessionControl);
-                sessionControl.GetState(out var state);
+                sessionEnumerator.GetSession(i, out IAudioSessionControl sessionControl);
+                sessionControl.GetState(out AudioSessionState state);
                 if (state == AudioSessionState.AudioSessionStateActive)
                 {
                     return true;
@@ -52,10 +55,9 @@ namespace PSADT.DeviceManagement
         /// Tests whether the current device has completed its Out-of-Box Experience (OOBE).
         /// </summary>
         /// <returns></returns>
-        /// <exception cref="Win32Exception"></exception>
         public static bool IsOOBEComplete()
         {
-            Kernel32.OOBEComplete(out var isOobeComplete);
+            _ = Kernel32.OOBEComplete(out BOOL isOobeComplete);
             return isOobeComplete;
         }
 
@@ -64,14 +66,7 @@ namespace PSADT.DeviceManagement
         /// </summary>
         internal static void RestartComputer()
         {
-            // Reboot the system and hard-exit this process.
-            using Process process = new();
-            process.StartInfo.FileName = "shutdown.exe";
-            process.StartInfo.Arguments = "/r /f /t 0";
-            process.StartInfo.UseShellExecute = false;
-            process.StartInfo.CreateNoWindow = true;
-            process.Start(); process.WaitForExit();
-            Environment.Exit(0);
+            Environment.Exit(ProcessManager.LaunchAsync(new(Path.Combine(Environment.SystemDirectory, "shutdown.exe"), ["/r /f /t 0"], Environment.SystemDirectory, denyUserTermination: true, createNoWindow: true))!.Task.GetAwaiter().GetResult().ExitCode);
         }
 
         /// <summary>
@@ -91,8 +86,8 @@ namespace PSADT.DeviceManagement
             const byte ChassisTypeOffset = 5;
 
             // Allocate buffer for the SMBIOS data and retrieve it.
-            Span<byte> buffer = stackalloc byte[(int)Kernel32.GetSystemFirmwareTable(FIRMWARE_TABLE_PROVIDER.RSMB, 0, null)];
-            Kernel32.GetSystemFirmwareTable(FIRMWARE_TABLE_PROVIDER.RSMB, 0, buffer);
+            Span<byte> buffer = stackalloc byte[(int)Kernel32.GetSystemFirmwareTable(FIRMWARE_TABLE_PROVIDER.RSMB, FIRMWARE_TABLE_ID.SMBIOS, null)];
+            _ = Kernel32.GetSystemFirmwareTable(FIRMWARE_TABLE_PROVIDER.RSMB, FIRMWARE_TABLE_ID.SMBIOS, buffer);
 
             // Parse the SMBIOS data to find Type 3, skipping the header.
             int offset = 0; offset += 8;
@@ -113,7 +108,7 @@ namespace PSADT.DeviceManagement
                         // The chassis type is at offset 5 within the Type 3 structure.
                         // Extract the lower 7 bits as per spec (bit 7 is reserved).
                         byte chassisType = buffer[offset + ChassisTypeOffset] &= 0x7F;
-                        return chassisType >= 1 && chassisType <= 32 ? (SystemChassisType)chassisType : SystemChassisType.Other;
+                        return chassisType is >= 1 and <= 32 ? (SystemChassisType)chassisType : SystemChassisType.Other;
                     }
                     break;
                 }

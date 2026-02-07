@@ -21,6 +21,7 @@ function Get-ADTModuleCallback
         * OnStart (The callback is executed before the first deployment session is opened)
         * PreOpen (The callback is executed before a deployment session is opened)
         * PostOpen (The callback is executed after a deployment session is opened)
+        * OnDefer (The callback is executed when a user defers the active deployment)
         * PreClose (The callback is executed before the deployment session is closed)
         * PostClose (The callback is executed after the deployment session is closed)
         * OnFinish (The callback is executed before the last deployment session is closed)
@@ -48,7 +49,7 @@ function Get-ADTModuleCallback
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -60,7 +61,7 @@ function Get-ADTModuleCallback
     (
         [Parameter(Mandatory = $true)]
         [ValidateNotNullOrEmpty()]
-        [PSADT.Module.CallbackType]$Hookpoint
+        [PSAppDeployToolkit.Foundation.CallbackType]$Hookpoint
     )
 
     # Directly clear the backend list.

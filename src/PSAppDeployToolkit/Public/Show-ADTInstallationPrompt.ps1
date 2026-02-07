@@ -19,6 +19,9 @@ function Show-ADTInstallationPrompt
     .PARAMETER DefaultValue
         The default value to show in the text box.
 
+    .PARAMETER SecureInput
+        Indicates input should be masked (i.e. for password use).
+
     .PARAMETER Message
         The message text to be displayed on the prompt.
 
@@ -57,6 +60,9 @@ function Show-ADTInstallationPrompt
 
     .PARAMETER AllowMove
         Specifies that the user can move the dialog on the screen.
+
+    .PARAMETER Force
+        Specifies whether the message box should appear irrespective of an ongoing DeploymentSession's DeployMode.
 
     .INPUTS
         None
@@ -99,7 +105,7 @@ function Show-ADTInstallationPrompt
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -110,15 +116,20 @@ function Show-ADTInstallationPrompt
     param
     (
         [Parameter(Mandatory = $true, ParameterSetName = 'ShowInputDialog')]
+        [Parameter(Mandatory = $true, ParameterSetName = 'ShowInputDialog_DefaultValue')]
+        [Parameter(Mandatory = $true, ParameterSetName = 'ShowInputDialog_SecureInput')]
         [System.Management.Automation.SwitchParameter]$RequestInput,
 
-        [Parameter(Mandatory = $false, ParameterSetName = 'ShowInputDialog')]
+        [Parameter(Mandatory = $true, ParameterSetName = 'ShowInputDialog_DefaultValue')]
         [ValidateNotNullOrEmpty()]
-        [System.String]$DefaultValue = [System.Management.Automation.Language.NullString]::Value,
+        [System.String]$DefaultValue,
+
+        [Parameter(Mandatory = $true, ParameterSetName = 'ShowInputDialog_SecureInput')]
+        [System.Management.Automation.SwitchParameter]$SecureInput,
 
         [Parameter(Mandatory = $true)]
         [ValidateNotNullOrEmpty()]
-        [System.String]$Message = [System.Management.Automation.Language.NullString]::Value,
+        [System.String]$Message,
 
         [Parameter(Mandatory = $false)]
         [ValidateNotNullOrEmpty()]
@@ -160,7 +171,10 @@ function Show-ADTInstallationPrompt
         [System.Management.Automation.SwitchParameter]$NotTopMost,
 
         [Parameter(Mandatory = $false)]
-        [System.Management.Automation.SwitchParameter]$AllowMove
+        [System.Management.Automation.SwitchParameter]$AllowMove,
+
+        [Parameter(Mandatory = $false)]
+        [System.Management.Automation.SwitchParameter]$Force
     )
 
     dynamicparam
@@ -217,8 +231,32 @@ function Show-ADTInstallationPrompt
             $PSCmdlet.ThrowTerminatingError((New-ADTErrorRecord @naerParams))
         }
 
+        # Throw a terminating error if we're trying to retrieve a password without an active session.
+        if ($SecureInput -and !$adtSession)
+        {
+            $naerParams = @{
+                Exception = [System.InvalidOperationException]::new('An active deployment session is required for a secure input dialog.')
+                Category = [System.Management.Automation.ErrorCategory]::InvalidOperation
+                ErrorId = 'SecureInputWithoutActiveSession'
+                TargetObject = $PSBoundParameters
+                RecommendedAction = "Please ensure there is an active deployment session and try again."
+            }
+            $PSCmdlet.ThrowTerminatingError((New-ADTErrorRecord @naerParams))
+        }
+
         # Initialize function.
         Initialize-ADTFunction -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState
+
+        # Initialise the string table.
+        $sessionState = if ($adtSession)
+        {
+            $adtSession.SessionState
+        }
+        if ($null -eq $sessionState)
+        {
+            $sessionState = $PSCmdlet.SessionState
+        }
+        $adtStrings = Get-ADTStringTable -SessionState $SessionState
 
         # Set up DeploymentType.
         $DeploymentType = if ($adtSession)
@@ -227,7 +265,7 @@ function Show-ADTInstallationPrompt
         }
         else
         {
-            [PSADT.Module.DeploymentType]::Install
+            [PSAppDeployToolkit.SessionManagement.DeploymentType]::Install
         }
 
         # Set up defaults if not specified.
@@ -237,7 +275,7 @@ function Show-ADTInstallationPrompt
         }
         if (!$PSBoundParameters.ContainsKey('Subtitle'))
         {
-            $PSBoundParameters.Add('Subtitle', (Get-ADTStringTable).InstallationPrompt.Subtitle.($DeploymentType.ToString()))
+            $PSBoundParameters.Add('Subtitle', $adtStrings.InstallationPrompt.Subtitle.($DeploymentType.ToString()))
         }
         if (!$PSBoundParameters.ContainsKey('Timeout'))
         {
@@ -256,7 +294,7 @@ function Show-ADTInstallationPrompt
             try
             {
                 # Bypass if in non-interactive mode.
-                if ($adtSession -and $adtSession.IsNonInteractive())
+                if ($adtSession -and $adtSession.IsNonInteractive() -and !$Force)
                 {
                     Write-ADTLogEntry -Message "Bypassing $($MyInvocation.MyCommand.Name) [Mode: $($adtSession.DeployMode)]. Message: $Message"
                     return
@@ -276,6 +314,7 @@ function Show-ADTInstallationPrompt
                     AppIconImage = $adtConfig.Assets.Logo
                     AppIconDarkImage = $adtConfig.Assets.LogoDark
                     AppBannerImage = $adtConfig.Assets.Banner
+                    AppTaskbarIconImage = $adtConfig.Assets.TaskbarIcon
                     DialogTopMost = !$NotTopMost
                     Language = $Script:ADT.Language
                     MinimizeWindows = !!$MinimizeWindows
@@ -289,6 +328,14 @@ function Show-ADTInstallationPrompt
                         Write-ADTLogEntry -Message "The parameter [-MessageAlignment] is not supported with Fluent dialogs and has no effect." -Severity 2
                     }
                     $dialogOptions.MessageAlignment = $MessageAlignment
+                }
+                if ($Icon)
+                {
+                    if ($adtConfig.UI.DialogStyle -eq 'Fluent')
+                    {
+                        Write-ADTLogEntry -Message "The parameter [-Icon] is not supported with Fluent dialogs and has no effect." -Severity 2
+                    }
+                    $dialogOptions.Add('Icon', $Icon)
                 }
                 if ($PSBoundParameters.ContainsKey('DefaultValue'))
                 {
@@ -306,10 +353,6 @@ function Show-ADTInstallationPrompt
                 {
                     $dialogOptions.Add('ButtonMiddleText', $ButtonMiddleText)
                 }
-                if ($Icon)
-                {
-                    $dialogOptions.Add('Icon', $Icon)
-                }
                 if ($PSBoundParameters.ContainsKey('WindowLocation'))
                 {
                     $dialogOptions.Add('DialogPosition', $WindowLocation)
@@ -326,6 +369,10 @@ function Show-ADTInstallationPrompt
                 {
                     $dialogOptions.Add('FluentAccentColor', $adtConfig.UI.FluentAccentColor)
                 }
+                if ($SecureInput)
+                {
+                    $dialogOptions.Add('SecureInput', !!$SecureInput)
+                }
                 $dialogOptions = if ($RequestInput)
                 {
                     [PSADT.UserInterface.DialogOptions.InputDialogOptions]$dialogOptions
@@ -336,10 +383,11 @@ function Show-ADTInstallationPrompt
                 }
 
                 # If the NoWait parameter is specified, launch a new PowerShell session to show the prompt asynchronously.
+                $dialogType = $PSCmdlet.ParameterSetName.Replace('Show', [System.Management.Automation.Language.NullString]::Value).Split('_')[0]
                 if ($NoWait)
                 {
                     Write-ADTLogEntry -Message "Displaying custom installation prompt asynchronously to [$($runAsActiveUser.NTAccount)] with message: [$Message]."
-                    Invoke-ADTClientServerOperation -ShowModalDialog -User $runAsActiveUser -DialogType $PSCmdlet.ParameterSetName.Replace('Show', [System.Management.Automation.Language.NullString]::Value) -DialogStyle $adtConfig.UI.DialogStyle -Options $dialogOptions -NoWait
+                    Invoke-ADTClientServerOperation -ShowModalDialog -User $runAsActiveUser -DialogType $dialogType -DialogStyle $adtConfig.UI.DialogStyle -Options $dialogOptions -NoWait
                     return
                 }
 
@@ -355,7 +403,7 @@ function Show-ADTInstallationPrompt
                 {
                     $result = try
                     {
-                        Invoke-ADTClientServerOperation -ShowModalDialog -User $runAsActiveUser -DialogType $PSCmdlet.ParameterSetName.Replace('Show', [System.Management.Automation.Language.NullString]::Value) -DialogStyle $adtConfig.UI.DialogStyle -Options $dialogOptions
+                        Invoke-ADTClientServerOperation -ShowModalDialog -User $runAsActiveUser -DialogType $dialogType -DialogStyle $adtConfig.UI.DialogStyle -Options $dialogOptions
                     }
                     catch [System.ApplicationException]
                     {

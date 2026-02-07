@@ -42,16 +42,18 @@ function Invoke-ADTRegSvr32
     .NOTES
         An active ADT session is NOT required to use this function.
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
         https://psappdeploytoolkit.com/docs/reference/functions/Invoke-ADTRegSvr32
     #>
 
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param
     (
         [Parameter(Mandatory = $true)]
@@ -73,7 +75,7 @@ function Invoke-ADTRegSvr32
     {
         # Define parameters to pass to regsrv32.exe.
         Initialize-ADTFunction -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState
-        $ActionParameters = switch ($Action = $Host.CurrentCulture.TextInfo.ToTitleCase($Action.ToLower()))
+        $ActionParameters = switch ($Action = $Host.CurrentCulture.TextInfo.ToTitleCase($Action.ToLowerInvariant()))
         {
             Register
             {
@@ -91,6 +93,10 @@ function Invoke-ADTRegSvr32
     process
     {
         Write-ADTLogEntry -Message "$Action DLL file [$FilePath]."
+        if (!$PSCmdlet.ShouldProcess("DLL [$FilePath]", $Action))
+        {
+            return
+        }
         try
         {
             try
@@ -99,7 +105,7 @@ function Invoke-ADTRegSvr32
                 if ((($DLLFileBitness = Get-ADTPEFileArchitecture -FilePath $FilePath) -ne [PSADT.LibraryInterfaces.IMAGE_FILE_MACHINE]::IMAGE_FILE_MACHINE_AMD64) -and ($DLLFileBitness -ne [PSADT.LibraryInterfaces.IMAGE_FILE_MACHINE]::IMAGE_FILE_MACHINE_I386))
                 {
                     $naerParams = @{
-                        Exception = [System.PlatformNotSupportedException]::new("File [$filePath] has a detected file architecture of [$DLLFileBitness]. Only 32-bit or 64-bit DLL files can be $($Action.ToLower() + 'ed').")
+                        Exception = [System.PlatformNotSupportedException]::new("File [$filePath] has a detected file architecture of [$DLLFileBitness]. Only 32-bit or 64-bit DLL files can be $($Action.ToLowerInvariant() + 'ed').")
                         Category = [System.Management.Automation.ErrorCategory]::InvalidOperation
                         ErrorId = 'DllFileArchitectureError'
                         TargetObject = $FilePath
@@ -134,7 +140,7 @@ function Invoke-ADTRegSvr32
                 else
                 {
                     $naerParams = @{
-                        Exception = [System.PlatformNotSupportedException]::new("File [$filePath] cannot be $($Action.ToLower()) because it is a 64-bit file on a 32-bit operating system.")
+                        Exception = [System.PlatformNotSupportedException]::new("File [$filePath] cannot be $($Action.ToLowerInvariant()) because it is a 64-bit file on a 32-bit operating system.")
                         Category = [System.Management.Automation.ErrorCategory]::InvalidOperation
                         ErrorId = 'DllFileArchitectureError'
                         TargetObject = $FilePath
@@ -144,31 +150,7 @@ function Invoke-ADTRegSvr32
                 }
 
                 # Register the DLL file and measure the success.
-                if (($ExecuteResult = Start-ADTProcess -FilePath $RegSvr32Path -ArgumentList $ActionParameters -WindowStyle Hidden -PassThru).ExitCode -ne 0)
-                {
-                    if ($ExecuteResult.ExitCode -eq 60002)
-                    {
-                        $naerParams = @{
-                            Exception = [System.InvalidOperationException]::new("Start-ADTProcess function failed with exit code [$($ExecuteResult.ExitCode)].")
-                            Category = [System.Management.Automation.ErrorCategory]::OperationStopped
-                            ErrorId = 'ProcessInvocationError'
-                            TargetObject = "$FilePath $ActionParameters"
-                            RecommendedAction = "Please review the result in this error's TargetObject property and try again."
-                        }
-                        throw (New-ADTErrorRecord @naerParams)
-                    }
-                    else
-                    {
-                        $naerParams = @{
-                            Exception = [System.InvalidOperationException]::new("regsvr32.exe failed with exit code [$($ExecuteResult.ExitCode)].")
-                            Category = [System.Management.Automation.ErrorCategory]::InvalidResult
-                            ErrorId = 'ProcessInvocationError'
-                            TargetObject = "$FilePath $ActionParameters"
-                            RecommendedAction = "Please review the result in this error's TargetObject property and try again."
-                        }
-                        throw (New-ADTErrorRecord @naerParams)
-                    }
-                }
+                Start-ADTProcess -FilePath $RegSvr32Path -ArgumentList $ActionParameters -CreateNoWindow -SuccessExitCodes 0
             }
             catch
             {
@@ -177,7 +159,7 @@ function Invoke-ADTRegSvr32
         }
         catch
         {
-            Invoke-ADTFunctionErrorHandler -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState -ErrorRecord $_ -LogMessage "Failed to $($Action.ToLower()) DLL file."
+            Invoke-ADTFunctionErrorHandler -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState -ErrorRecord $_ -LogMessage "Failed to $($Action.ToLowerInvariant()) DLL file."
         }
     }
 

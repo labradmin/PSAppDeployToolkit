@@ -71,7 +71,7 @@ function Private:Import-ADTModuleDataFile
     }
 
     # Establish directory paths for the specified input.
-    $moduleDirectory = $Script:ADT.Directories.Defaults.([System.IO.Path]::GetFileNameWithoutExtension($FileName))
+    $moduleDirectory = $Script:ADT.Directories.Defaults.([System.Globalization.CultureInfo]::InvariantCulture.TextInfo.ToTitleCase([System.IO.Path]::GetFileNameWithoutExtension($FileName)))
     $callerDirectory = $BaseDirectory
 
     # If we're running a release module, ensure the psd1 files haven't been tampered with.
@@ -89,7 +89,7 @@ function Private:Import-ADTModuleDataFile
 
     # Import the default data first and foremost.
     $null = $PSBoundParameters.Remove('IgnorePolicy')
-    $PSBoundParameters.BaseDirectory = $moduleDirectory
+    $PSBoundParameters.BaseDirectory = [System.Management.Automation.WildcardPattern]::Escape($moduleDirectory)
     $importedData = Import-LocalizedData @PSBoundParameters
 
     # Validate we imported something from our default location.
@@ -110,7 +110,7 @@ function Private:Import-ADTModuleDataFile
     {
         foreach ($directory in $callerDirectory)
         {
-            $PSBoundParameters.BaseDirectory = $directory
+            $PSBoundParameters.BaseDirectory = [System.Management.Automation.WildcardPattern]::Escape($directory)
             Update-ADTImportedDataValues -DataFile $importedData -NewData (Import-LocalizedData @PSBoundParameters)
         }
     }

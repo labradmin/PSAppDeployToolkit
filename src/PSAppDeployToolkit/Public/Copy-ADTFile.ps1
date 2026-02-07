@@ -16,6 +16,9 @@ function Copy-ADTFile
     .PARAMETER Path
         Path of the file to copy. Multiple paths can be specified.
 
+    .PARAMETER LiteralPath
+        Literal path of the file to copy. Multiple paths can be specified.
+
     .PARAMETER Destination
         Destination Path of the file to copy.
 
@@ -53,7 +56,7 @@ function Copy-ADTFile
         Copies the file 'file.txt' from 'C:\Path' to 'D:\Destination'.
 
     .EXAMPLE
-        Copy-ADTFile -Path 'C:\Path\Folder' -Destination 'D:\Destination\Folder' -Recurse
+        Copy-ADTFile -Path 'C:\Path\Folder' -Destination 'D:\Destination' -Recurse
 
         Recursively copies the folder 'Folder' from 'C:\Path' to 'D:\Destination'.
 
@@ -70,22 +73,28 @@ function Copy-ADTFile
     .NOTES
         An active ADT session is NOT required to use this function.
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
         https://psappdeploytoolkit.com/docs/reference/functions/Copy-ADTFile
     #>
 
-    [CmdletBinding(SupportsShouldProcess = $false)]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param
     (
-        [Parameter(Mandatory = $true, Position = 0)]
+        [Parameter(Mandatory = $true, Position = 0, ParameterSetName = 'Path')]
         [ValidateNotNullOrEmpty()]
         [SupportsWildcards()]
         [System.String[]]$Path,
+
+        [Parameter(Mandatory = $true, Position = 0, ParameterSetName = 'LiteralPath')]
+        [ValidateNotNullOrEmpty()]
+        [System.String[]]$LiteralPath,
 
         [Parameter(Mandatory = $true, Position = 1)]
         [ValidateNotNullOrEmpty()]
@@ -143,7 +152,6 @@ function Copy-ADTFile
                 else
                 {
                     $robocopyCommand = "$([System.Environment]::SystemDirectory)\Robocopy.exe"
-
                     if ($Recurse -and !$Flatten)
                     {
                         # Add /E to Robocopy parameters if it is not already included.
@@ -179,27 +187,13 @@ function Copy-ADTFile
     {
         if ($FileCopyMode -eq 'Robocopy')
         {
-            foreach ($srcPath in $Path)
+            foreach ($srcPath in $PSBoundParameters.($PSCmdlet.ParameterSetName))
             {
                 try
                 {
-                    if (!(Get-ChildItem -Path $srcPath -Recurse -Force))
-                    {
-                        if (!$ContinueFileCopyOnError)
-                        {
-                            Write-ADTLogEntry -Message "Source path [$srcPath] not found." -Severity 2
-                            $naerParams = @{
-                                Exception = [System.IO.FileNotFoundException]::new("Source path [$srcPath] not found.")
-                                Category = [System.Management.Automation.ErrorCategory]::ObjectNotFound
-                                ErrorId = 'FileNotFoundError'
-                                TargetObject = $srcPath
-                                RecommendedAction = 'Please verify that the path is accessible and try again.'
-                            }
-                            Write-Error -ErrorRecord (New-ADTErrorRecord @naerParams)
-                        }
-                        Write-ADTLogEntry -Message "Source path [$srcPath] not found. Will continue due to ContinueFileCopyOnError = `$true." -Severity 2
-                        continue
-                    }
+                    # Determine whether the path exists before continuing. This will throw a suitable error for us.
+                    $pathSplat = @{ $PSCmdlet.ParameterSetName = $srcPath }
+                    $null = Get-Item @pathSplat -Force
 
                     # Pre-create destination folder if it does not exist; Robocopy will auto-create non-existent destination folders, but pre-creating ensures we can use Resolve-Path.
                     if (!(Test-Path -LiteralPath $Destination -PathType Container))
@@ -209,13 +203,14 @@ function Copy-ADTFile
                     }
 
                     # If source exists as a folder, append the last subfolder to the destination, so that Robocopy produces similar results to native PowerShell.
-                    if (Test-Path -Path $srcPath -PathType Container)
+                    if (Test-Path @pathSplat -PathType Container)
                     {
                         # Trim ending backslash from paths which can cause problems with Robocopy.
                         # Resolve paths in case relative paths beggining with .\, ..\, or \ are used.
                         # Strip Microsoft.PowerShell.Core\FileSystem:: from the beginning of the resulting string, since Resolve-Path adds this to UNC paths.
-                        $robocopySource = (Get-Item -Path $srcPath.TrimEnd('\') -Force).FullName -replace '^Microsoft\.PowerShell\.Core\\FileSystem::'
-                        $robocopyDestination = (Join-Path -Path ((Get-Item -LiteralPath $Destination -Force).FullName -replace '^Microsoft\.PowerShell\.Core\\FileSystem::') -ChildPath (Split-Path -Path $srcPath -Leaf)).Trim()
+                        $getItemSplat = @{ $PSCmdlet.ParameterSetName = $srcPath.TrimEnd('\') }
+                        $robocopySource = (Get-Item @getItemSplat -Force).FullName -replace '^Microsoft\.PowerShell\.Core\\FileSystem::'
+                        $robocopyDestination = (Join-Path -Path ((Get-Item -LiteralPath $Destination -Force).FullName -replace '^Microsoft\.PowerShell\.Core\\FileSystem::') -ChildPath ([System.IO.Path]::GetFileName($($pathSplat.Values)))).Trim()
                         $robocopyFile = '*'
                     }
                     else
@@ -224,7 +219,7 @@ function Copy-ADTFile
                         # Trim ending backslash from paths which can cause problems with Robocopy.
                         # Resolve paths in case relative paths beggining with .\, ..\, or \ are used.
                         # Strip Microsoft.PowerShell.Core\FileSystem:: from the beginning of the resulting string, since Resolve-Path adds this to UNC paths.
-                        $ParentPath = Split-Path -Path $srcPath -Parent
+                        $ParentPath = Split-Path @pathSplat
                         $robocopySource = if ([System.String]::IsNullOrWhiteSpace($ParentPath))
                         {
                             $ExecutionContext.SessionState.Path.CurrentLocation.Path
@@ -234,7 +229,7 @@ function Copy-ADTFile
                             (Get-Item -LiteralPath $ParentPath -Force).FullName -replace '^Microsoft\.PowerShell\.Core\\FileSystem::'
                         }
                         $robocopyDestination = (Get-Item -LiteralPath $Destination.TrimEnd('\') -Force).FullName -replace '^Microsoft\.PowerShell\.Core\\FileSystem::'
-                        $robocopyFile = (Split-Path -Path $srcPath -Leaf)
+                        $robocopyFile = [System.IO.Path]::GetFileName($($pathSplat.Values))
                     }
 
                     # Set up copy operation.
@@ -359,23 +354,36 @@ function Copy-ADTFile
                 }
                 catch
                 {
-                    Invoke-ADTFunctionErrorHandler -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState -ErrorRecord $_ -LogMessage "Failed to copy file(s) in path [$srcPath] to destination [$Destination]."
-                    if (!$ContinueFileCopyOnError)
+                    $iafehParams = @{
+                        Cmdlet = $PSCmdlet
+                        SessionState = $ExecutionContext.SessionState
+                        ErrorRecord = $_
+                        LogMessage = "Failed to copy file(s) in path [$srcPath] to destination [$Destination]."
+                    }
+                    if ($ContinueFileCopyOnError)
                     {
-                        Write-ADTLogEntry -Message 'ContinueFileCopyOnError not specified, exiting function.'
-                        return
+                        $iafehParams.Add('ErrorAction', [System.Management.Automation.ActionPreference]::SilentlyContinue)
+                    }
+                    Invoke-ADTFunctionErrorHandler @iafehParams
+                    if ($ContinueFileCopyOnError)
+                    {
+                        Write-ADTLogEntry -Message 'ContinueFileCopyOnError specified, processing next item.'
                     }
                 }
             }
         }
         elseif ($FileCopyMode -eq 'Native')
         {
-            foreach ($srcPath in $Path)
+            foreach ($srcPath in $PSBoundParameters.($PSCmdlet.ParameterSetName))
             {
                 try
                 {
                     try
                     {
+                        # Determine whether the path exists before continuing. This will throw a suitable error for us.
+                        $pathSplat = @{ $PSCmdlet.ParameterSetName = $srcPath }
+                        $null = Get-Item @pathSplat -Force
+
                         # If destination has no extension, or if it has an extension only and no name (e.g. a .config folder) and the destination folder does not exist.
                         if ((![System.IO.Path]::HasExtension($Destination) -or ([System.IO.Path]::HasExtension($Destination) -and ![System.IO.Path]::GetFileNameWithoutExtension($Destination))) -and !(Test-Path -LiteralPath $Destination -PathType Container))
                         {
@@ -405,24 +413,33 @@ function Copy-ADTFile
                         $null = if ($Flatten)
                         {
                             Write-ADTLogEntry -Message "Copying file(s) recursively in path [$srcPath] to destination [$Destination] root folder, flattened."
-                            if ($srcPaths = Get-ChildItem -Path $srcPath -File -Recurse -Force -ErrorAction Ignore)
+                            if ($srcPaths = Get-ChildItem @pathSplat -File -Recurse -Force -ErrorAction Ignore)
                             {
-                                Copy-Item -LiteralPath $srcPaths.PSPath @ciParams
+                                if ($PSCmdlet.ShouldProcess($Destination, "Copy from [$srcPath]"))
+                                {
+                                    Copy-Item -LiteralPath $srcPaths.PSPath @ciParams
+                                }
                             }
                         }
                         elseif ($Recurse)
                         {
                             Write-ADTLogEntry -Message "Copying file(s) recursively in path [$srcPath] to destination [$Destination]."
-                            Copy-Item -Path $srcPath -Recurse @ciParams
+                            if ($PSCmdlet.ShouldProcess($Destination, "Copy from [$srcPath]"))
+                            {
+                                Copy-Item @pathSplat -Recurse @ciParams
+                            }
                         }
                         else
                         {
                             Write-ADTLogEntry -Message "Copying file in path [$srcPath] to destination [$Destination]."
-                            Copy-Item -Path $srcPath @ciParams
+                            if ($PSCmdlet.ShouldProcess($Destination, "Copy from [$srcPath]"))
+                            {
+                                Copy-Item @pathSplat @ciParams
+                            }
                         }
 
                         # Measure success.
-                        if ($ContinueFileCopyOnError -and $FileCopyError.Count)
+                        if ($ContinueFileCopyOnError -and (Test-Path -LiteralPath Microsoft.PowerShell.Core\Variable::FileCopyError) -and $FileCopyError -and $FileCopyError.Count)
                         {
                             Write-ADTLogEntry -Message "The following warnings were detected while copying file(s) in path [$srcPath] to destination [$Destination].`n`n$([System.String]::Join("`n", $FileCopyError.Exception.Message))" -Severity 2
                         }
@@ -438,11 +455,20 @@ function Copy-ADTFile
                 }
                 catch
                 {
-                    Invoke-ADTFunctionErrorHandler -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState -ErrorRecord $_ -LogMessage "Failed to copy file(s) in path [$srcPath] to destination [$Destination]."
-                    if (!$ContinueFileCopyOnError)
+                    $iafehParams = @{
+                        Cmdlet = $PSCmdlet
+                        SessionState = $ExecutionContext.SessionState
+                        ErrorRecord = $_
+                        LogMessage = "Failed to copy file(s) in path [$srcPath] to destination [$Destination]."
+                    }
+                    if ($ContinueFileCopyOnError)
                     {
-                        Write-ADTLogEntry -Message 'ContinueFileCopyOnError not specified, exiting function.'
-                        return
+                        $iafehParams.Add('ErrorAction', [System.Management.Automation.ActionPreference]::SilentlyContinue)
+                    }
+                    Invoke-ADTFunctionErrorHandler @iafehParams
+                    if ($ContinueFileCopyOnError)
+                    {
+                        Write-ADTLogEntry -Message 'ContinueFileCopyOnError specified, processing next item.'
                     }
                 }
             }

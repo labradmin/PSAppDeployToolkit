@@ -27,8 +27,8 @@ function Private:New-ADTEnvironmentTable
     ## Variables: Culture
     $variables.Add('culture', $Host.CurrentCulture)
     $variables.Add('uiculture', $Host.CurrentUICulture)
-    $variables.Add('currentLanguage', $variables.culture.TwoLetterISOLanguageName.ToUpper())
-    $variables.Add('currentUILanguage', $variables.uiculture.TwoLetterISOLanguageName.ToUpper())
+    $variables.Add('currentLanguage', $variables.culture.TwoLetterISOLanguageName.ToUpperInvariant())
+    $variables.Add('currentUILanguage', $variables.uiculture.TwoLetterISOLanguageName.ToUpperInvariant())
 
     ## Variables: Environment Variables
     $variables.Add('envHost', $Host)
@@ -42,20 +42,20 @@ function Private:New-ADTEnvironmentTable
     $variables.Add('envHostVersionBuildLabel', $(if ($variables.envHostVersionSemantic -and $variables.envHostVersionSemantic.BuildLabel) { $variables.envHostVersionSemantic.BuildLabel }))
     $variables.Add('envAllUsersProfile', [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::CommonApplicationData))
     $variables.Add('envAppData', [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::ApplicationData))
-    $variables.Add('envArchitecture', [System.Environment]::GetEnvironmentVariable('PROCESSOR_ARCHITECTURE'))
+    $variables.Add('envArchitecture', [PSADT.Utilities.EnvironmentUtilities]::GetEnvironmentVariable('PROCESSOR_ARCHITECTURE'))
     $variables.Add('envCommonDesktop', [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::CommonDesktopDirectory))
     $variables.Add('envCommonDocuments', [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::CommonDocuments))
     $variables.Add('envCommonStartMenuPrograms', [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::CommonPrograms))
     $variables.Add('envCommonStartMenu', [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::CommonStartMenu))
     $variables.Add('envCommonStartUp', [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::CommonStartup))
     $variables.Add('envCommonTemplates', [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::CommonTemplates))
-    $variables.Add('envHomeDrive', [System.Environment]::GetEnvironmentVariable('HOMEDRIVE'))
-    $variables.Add('envHomePath', [System.Environment]::GetEnvironmentVariable('HOMEPATH'))
-    $variables.Add('envHomeShare', [System.Environment]::GetEnvironmentVariable('HOMESHARE'))
+    $variables.Add('envHomeDrive', [PSADT.Utilities.EnvironmentUtilities]::GetEnvironmentVariable('HOMEDRIVE'))
+    $variables.Add('envHomePath', [PSADT.Utilities.EnvironmentUtilities]::GetEnvironmentVariable('HOMEPATH'))
+    $variables.Add('envHomeShare', [PSADT.Utilities.EnvironmentUtilities]::GetEnvironmentVariable('HOMESHARE'))
     $variables.Add('envLocalAppData', [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::LocalApplicationData))
     $variables.Add('envLogicalDrives', [System.Collections.Generic.IReadOnlyList[System.String]][System.Collections.ObjectModel.ReadOnlyCollection[System.String]][System.Environment]::GetLogicalDrives())
     $variables.Add('envProgramData', [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::CommonApplicationData))
-    $variables.Add('envPublic', [System.Environment]::GetEnvironmentVariable('PUBLIC'))
+    $variables.Add('envPublic', [PSADT.Utilities.EnvironmentUtilities]::GetEnvironmentVariable('PUBLIC'))
     $variables.Add('envSystemDrive', [System.IO.Path]::GetPathRoot([System.Environment]::SystemDirectory).TrimEnd('\'))
     $variables.Add('envSystemRoot', [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::Windows))
     $variables.Add('envTemp', [System.IO.Path]::GetTempPath())
@@ -87,14 +87,14 @@ function Private:New-ADTEnvironmentTable
     $variables.Add('envMachineADDomain', $null)
     $variables.Add('envLogonServer', $null)
     $variables.Add('MachineDomainController', $null)
-    $variables.Add('envMachineDNSDomain', ([System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().DomainName | & { process { if ($_) { return $_.ToLower() } } } | Select-Object -First 1))
-    $variables.Add('envUserDNSDomain', ([System.Environment]::GetEnvironmentVariable('USERDNSDOMAIN') | & { process { if ($_) { return $_.ToLower() } } } | Select-Object -First 1))
-    $variables.Add('envUserDomain', $(if ([System.Environment]::UserDomainName) { [System.Environment]::UserDomainName.ToUpper() }))
-    $variables.Add('envComputerName', $w32cs.DNSHostName.ToUpper())
+    $variables.Add('envMachineDNSDomain', ([System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().DomainName | & { process { if ($_) { return $_.ToLowerInvariant() } } } | Select-Object -First 1))
+    $variables.Add('envUserDNSDomain', ([PSADT.Utilities.EnvironmentUtilities]::GetEnvironmentVariable('USERDNSDOMAIN') | & { process { if ($_) { return $_.ToLowerInvariant() } } } | Select-Object -First 1))
+    $variables.Add('envUserDomain', $(if ([System.Environment]::UserDomainName) { [System.Environment]::UserDomainName.ToUpperInvariant() }))
+    $variables.Add('envComputerName', $w32cs.DNSHostName.ToUpperInvariant())
     $variables.Add('envComputerNameFQDN', $variables.envComputerName)
     if ($variables.IsMachinePartOfDomain)
     {
-        $variables.envMachineADDomain = $w32csd.ToLower()
+        $variables.envMachineADDomain = $w32csd.ToLowerInvariant()
         $variables.envComputerNameFQDN = try
         {
             [System.Net.Dns]::GetHostEntry('localhost').HostName
@@ -108,7 +108,7 @@ function Private:New-ADTEnvironmentTable
         # Set the logon server and remove backslashes at the beginning.
         $variables.envLogonServer = try
         {
-            [System.Environment]::GetEnvironmentVariable('LOGONSERVER') | & { process { if ($_ -and !$_.Contains('\\MicrosoftAccount')) { [System.Net.Dns]::GetHostEntry($_.TrimStart('\')).HostName } } }
+            [PSADT.Utilities.EnvironmentUtilities]::GetEnvironmentVariable('LOGONSERVER') | & { process { if ($_ -and !$_.Contains('\\MicrosoftAccount')) { [System.Net.Dns]::GetHostEntry($_.TrimStart('\')).HostName } } }
         }
         catch
         {
@@ -131,7 +131,7 @@ function Private:New-ADTEnvironmentTable
     }
     else
     {
-        $variables.envMachineWorkgroup = $w32csd.ToUpper()
+        $variables.envMachineWorkgroup = $w32csd.ToUpperInvariant()
     }
 
     # Get the OS Architecture.
@@ -154,8 +154,8 @@ function Private:New-ADTEnvironmentTable
         }
         else
         {
-            $variables.Add('envProgramFiles', [System.Environment]::GetEnvironmentVariable('ProgramW6432'))
-            $variables.Add('envCommonProgramFiles', [System.Environment]::GetEnvironmentVariable('CommonProgramW6432'))
+            $variables.Add('envProgramFiles', [PSADT.Utilities.EnvironmentUtilities]::GetEnvironmentVariable('ProgramW6432'))
+            $variables.Add('envCommonProgramFiles', [PSADT.Utilities.EnvironmentUtilities]::GetEnvironmentVariable('CommonProgramW6432'))
             $variables.Add('envSysNativeDirectory', (Join-Path -Path ([System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::Windows)) -ChildPath sysnative))
             $variables.Add('envSYSWOW64Directory', [System.Environment]::SystemDirectory)
         }
@@ -306,6 +306,7 @@ function Private:New-ADTEnvironmentTable
         $variables.Add('CurrentConsoleUserSession', ($($variables.LoggedOnUserSessions) | & { process { if ($_.IsConsoleSession) { return $_ } } } | Select-Object -First 1))
         $variables.Add('LoggedOnUserSessionsText', ($($variables.LoggedOnUserSessions) | Format-List | Out-String -Width ([System.Int32]::MaxValue)).Trim())
         $variables.Add('RunAsActiveUser', (Get-ADTRunAsActiveUser -UserSessionInfo $variables.LoggedOnUserSessions 4>$null))
+        $variables.Add('RunAsActiveUserLocale', [Microsoft.Win32.Registry]::GetValue("HKEY_USERS\$($variables.RunAsActiveUser.SID)\Control Panel\International", "LocaleName", $null))
     }
     else
     {
@@ -314,12 +315,13 @@ function Private:New-ADTEnvironmentTable
         $variables.Add('CurrentConsoleUserSession', $null)
         $variables.Add('LoggedOnUserSessionsText', $null)
         $variables.Add('RunAsActiveUser', $null)
+        $variables.Add('RunAsActiveUserLocale', $null)
     }
 
     ## Variables: User profile information.
     $variables.Add('dirUserProfile', [System.IO.Directory]::GetParent($variables.envPublic))
-    $variables.Add('userProfileName', $(if ($variables.RunAsActiveUser) { $variables.RunAsActiveUser.UserName }))
-    $variables.Add('runasUserProfile', $(if ($variables.userProfileName) { Join-Path -Path $variables.dirUserProfile -ChildPath $variables.userProfileName -Resolve -ErrorAction Ignore }))
+    $variables.Add('runasUserProfile', $(if ($variables.RunAsActiveUser) { [Microsoft.Win32.Registry]::GetValue("HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$($variables.RunAsActiveUser.SID)", 'ProfileImagePath', $null) }))
+    $variables.Add('userProfileName', $(if ($variables.runasUserProfile) { $variables.runasUserProfile.Split('\')[-1] }))
 
     ## Variables: Invalid FileName Characters
     $variables.Add('invalidFileNameChars', [System.Collections.Generic.IReadOnlyList[System.Char]][System.Collections.ObjectModel.ReadOnlyCollection[System.Char]][System.IO.Path]::GetInvalidFileNameChars())

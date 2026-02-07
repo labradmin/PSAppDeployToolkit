@@ -50,16 +50,18 @@ function New-ADTZipFile
     .NOTES
         An active ADT session is NOT required to use this function.
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
         https://psappdeploytoolkit.com/docs/reference/functions/New-ADTZipFile
     #>
 
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param
     (
         [Parameter(Mandatory = $true, ParameterSetName = 'Path')]
@@ -97,28 +99,15 @@ function New-ADTZipFile
 
     begin
     {
-        # Remove invalid characters from the supplied filename.
-        Initialize-ADTFunction -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState
-        if (($DestinationArchiveFileName = Remove-ADTInvalidFileNameChars -Name $DestinationArchiveFileName).Length -eq 0)
-        {
-            $naerParams = @{
-                Exception = [System.ArgumentException]::new('Invalid filename characters replacement resulted into an empty string.', $_)
-                Category = [System.Management.Automation.ErrorCategory]::InvalidArgument
-                ErrorId = 'DestinationArchiveFileNameInvalid'
-                TargetObject = $DestinationArchiveFileName
-                RecommendedAction = "Please review the supplied value to '-DestinationArchiveFileName' and try again."
-            }
-            $PSCmdlet.ThrowTerminatingError((New-ADTErrorRecord @naerParams))
-        }
-
         # Remove parameters from PSBoundParameters that don't apply to Compress-Archive.
+        Initialize-ADTFunction -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState
         if ($PSBoundParameters.ContainsKey('RemoveSourceAfterArchiving'))
         {
             $null = $PSBoundParameters.Remove('RemoveSourceAfterArchiving')
         }
 
         # Get the specified source variable.
-        $sourcePath = Get-Variable -Name $PSCmdlet.ParameterSetName -ValueOnly
+        $sourcePath = $PSBoundParameters.($PSCmdlet.ParameterSetName)
     }
 
     process
@@ -130,42 +119,50 @@ function New-ADTZipFile
                 # Get the full destination path where the archive will be stored.
                 Write-ADTLogEntry -Message "Creating a zip archive with the requested content at destination path [$DestinationPath]."
 
-                # If the destination archive already exists, delete it if the -OverwriteArchive option was selected.
-                if ((Test-Path -LiteralPath $DestinationPath -PathType Leaf) -and $OverwriteArchive)
+                # If the destination archive already exists, delete it if the -Force option was selected.
+                if ((Test-Path -LiteralPath $DestinationPath -PathType Leaf) -and $Force)
                 {
                     Write-ADTLogEntry -Message "An archive at the destination path already exists, deleting file [$DestinationPath]."
-                    $null = Remove-Item -LiteralPath $DestinationPath -Force
+                    if ($PSCmdlet.ShouldProcess($DestinationPath, 'Delete existing archive'))
+                    {
+                        $null = Remove-Item -LiteralPath $DestinationPath -Force
+                    }
                 }
 
                 # Create the archive file.
                 Write-ADTLogEntry -Message "Compressing [$sourcePath] to destination path [$DestinationPath]..."
-                Compress-Archive @PSBoundParameters
+                if ($PSCmdlet.ShouldProcess($DestinationPath, "Create zip archive from [$sourcePath]"))
+                {
+                    Compress-Archive @PSBoundParameters
+                }
 
                 # If option was selected, recursively delete the source directory after successfully archiving the contents.
                 if ($RemoveSourceAfterArchiving)
                 {
-                    try
+                    Write-ADTLogEntry -Message "Recursively deleting [$sourcePath] as contents have been successfully archived."
+                    if ($PSCmdlet.ShouldProcess($sourcePath, 'Delete source after archiving'))
                     {
-                        Write-ADTLogEntry -Message "Recursively deleting [$sourcePath] as contents have been successfully archived."
-                        $null = Remove-Item -LiteralPath $Directory -Recurse -Force
-                    }
-                    catch
-                    {
-                        Write-ADTLogEntry -Message "Failed to recursively delete [$sourcePath].`n$(Resolve-ADTErrorRecord -ErrorRecord $_)" -Severity 2
+                        try
+                        {
+                            $null = Remove-Item -LiteralPath $Directory -Recurse -Force
+                        }
+                        catch
+                        {
+                            Invoke-ADTFunctionErrorHandler -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState -ErrorRecord $_ -LogMessage "Failed to recursively delete [$sourcePath]." -ErrorAction SilentlyContinue
+                        }
                     }
                 }
 
                 # If the archive was created in session 0 or by an Admin, then it may only be readable by elevated users.
                 # Apply the parent folder's permissions to the archive file to fix the problem.
                 $parentPath = [System.IO.Path]::GetDirectoryName($DestinationPath)
-                Write-ADTLogEntry -Message "If the archive was created in session 0 or by an Admin, then it may only be readable by elevated users. Apply permissions from parent folder [$parentPath] to file [$DestinationPath]."
                 try
                 {
                     Set-Acl -LiteralPath $DestinationPath -AclObject (Get-Acl -LiteralPath $parentPath)
                 }
                 catch
                 {
-                    Write-ADTLogEntry -Message "Failed to apply parent folder's [$parentPath] permissions to file [$DestinationPath].`n$(Resolve-ADTErrorRecord -ErrorRecord $_)" -Severity 2
+                    Invoke-ADTFunctionErrorHandler -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState -ErrorRecord $_ -LogMessage "Failed to apply parent folder's [$parentPath] permissions to file [$DestinationPath]." -ErrorAction SilentlyContinue
                 }
             }
             catch

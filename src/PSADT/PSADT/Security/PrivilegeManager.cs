@@ -1,18 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 using PSADT.AccountManagement;
 using PSADT.Extensions;
 using PSADT.LibraryInterfaces;
-using PSADT.SafeHandles;
-using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.Security;
-using Windows.Win32.System.Threading;
 
 namespace PSADT.Security
 {
@@ -21,25 +17,6 @@ namespace PSADT.Security
     /// </summary>
 	internal static class PrivilegeManager
     {
-        /// <summary>
-        /// Ensures that a security token is enabled.
-        /// </summary>
-        /// <param name="privilege"></param>
-        internal static void EnablePrivilegeIfDisabled(SE_PRIVILEGE privilege)
-        {
-            using (var cProcessSafeHandle = Kernel32.GetCurrentProcess())
-            {
-                AdvApi32.OpenProcessToken(cProcessSafeHandle, TOKEN_ACCESS_MASK.TOKEN_QUERY | TOKEN_ACCESS_MASK.TOKEN_ADJUST_PRIVILEGES, out var hProcessToken);
-                using (hProcessToken)
-                {
-                    if (!IsPrivilegeEnabled(hProcessToken, privilege))
-                    {
-                        EnablePrivilege(hProcessToken, privilege);
-                    }
-                }
-            }
-        }
-
         /// <summary>
         /// Retrieves a read-only collection of privileges associated with the specified token.
         /// </summary>
@@ -57,46 +34,45 @@ namespace PSADT.Security
             // Internal worker function to retrieve the privilege name from the token attributes.
             static SE_PRIVILEGE GetPrivilege(in LUID_AND_ATTRIBUTES attr, Span<char> buffer)
             {
-                AdvApi32.LookupPrivilegeName(null, attr.Luid, buffer, out var retLength);
+                _ = AdvApi32.LookupPrivilegeName(null, attr.Luid, buffer, out uint retLength);
                 string privilegeName = buffer.Slice(0, (int)retLength).ToString().TrimRemoveNull();
-                if (!Enum.TryParse<SE_PRIVILEGE>(privilegeName, true, out var privilege))
-                {
-                    throw new ArgumentException($"Unknown privilege: {privilegeName}");
-                }
-                return privilege;
+                return !Enum.TryParse(privilegeName, true, out SE_PRIVILEGE privilege)
+                    ? throw new ArgumentException($"Unknown privilege: {privilegeName}")
+                    : privilege;
             }
 
             // Get the size of the buffer required to hold the token privileges.
-            AdvApi32.GetTokenInformation(token, TOKEN_INFORMATION_CLASS.TokenPrivileges, SafeMemoryHandle.Null, out var returnLength);
-            using (var buffer = SafeHGlobalHandle.Alloc((int)returnLength))
+            _ = AdvApi32.GetTokenInformation(token, TOKEN_INFORMATION_CLASS.TokenPrivileges, null, out uint returnLength);
+            Span<byte> buffer = stackalloc byte[(int)returnLength];
+
+            // Retrieve the token privileges and filter them based on the specified attributes before returning them.
+            _ = AdvApi32.GetTokenInformation(token, TOKEN_INFORMATION_CLASS.TokenPrivileges, buffer, out _);
+            ref readonly TOKEN_PRIVILEGES tokenPrivileges = ref buffer.AsReadOnlyStructure<TOKEN_PRIVILEGES>();
+            uint privilegeCount = tokenPrivileges.PrivilegeCount;
+            int bufferOffset = sizeof(uint);
+            int increment = Marshal.SizeOf<LUID_AND_ATTRIBUTES>();
+            Span<char> charSpan = stackalloc char[1024];
+            List<SE_PRIVILEGE> privileges = [];
+            if (attributes is not null)
             {
-                // Retrieve the token privileges and filter them based on the specified attributes before returning them.
-                AdvApi32.GetTokenInformation(token, TOKEN_INFORMATION_CLASS.TokenPrivileges, buffer, out _);
-                var privilegeCount = buffer.ToStructure<TOKEN_PRIVILEGES>().PrivilegeCount;
-                var bufferOffset = sizeof(uint);
-                var increment = Marshal.SizeOf<LUID_AND_ATTRIBUTES>();
-                Span<char> charSpan = stackalloc char[(int)PInvoke.MAX_PATH];
-                List<SE_PRIVILEGE> privileges = [];
-                if (null != attributes)
+                for (int i = 0; i < privilegeCount; i++)
                 {
-                    for (int i = 0; i < privilegeCount; i++)
+                    ref readonly LUID_AND_ATTRIBUTES attr = ref buffer.Slice(bufferOffset + (increment * i)).AsReadOnlyStructure<LUID_AND_ATTRIBUTES>();
+                    if ((attr.Attributes & attributes) == attributes)
                     {
-                        var attr = buffer.ToStructure<LUID_AND_ATTRIBUTES>(bufferOffset + (increment * i));
-                        if ((attr.Attributes & attributes) == attributes)
-                        {
-                            privileges.Add(GetPrivilege(attr, charSpan));
-                        }
+                        privileges.Add(GetPrivilege(in attr, charSpan));
                     }
                 }
-                else
-                {
-                    for (int i = 0; i < privilegeCount; i++)
-                    {
-                        privileges.Add(GetPrivilege(buffer.ToStructure<LUID_AND_ATTRIBUTES>(bufferOffset + (increment * i)), charSpan));
-                    }
-                }
-                return privileges.OrderBy(static p => p).ToList().AsReadOnly();
             }
+            else
+            {
+                for (int i = 0; i < privilegeCount; i++)
+                {
+                    ref readonly LUID_AND_ATTRIBUTES attr = ref buffer.Slice(bufferOffset + (increment * i)).AsReadOnlyStructure<LUID_AND_ATTRIBUTES>();
+                    privileges.Add(GetPrivilege(in attr, charSpan));
+                }
+            }
+            return new ReadOnlyCollection<SE_PRIVILEGE>([.. privileges.OrderBy(static p => p)]);
         }
 
         /// <summary>
@@ -109,13 +85,11 @@ namespace PSADT.Security
         /// available, the collection will be empty.</returns>
         internal static ReadOnlyCollection<SE_PRIVILEGE> GetPrivileges()
         {
-            using (var cProcessSafeHandle = Kernel32.GetCurrentProcess())
+            using SafeProcessHandle cProcessSafeHandle = Kernel32.GetCurrentProcess();
+            _ = AdvApi32.OpenProcessToken(cProcessSafeHandle, TOKEN_ACCESS_MASK.TOKEN_QUERY, out SafeFileHandle hProcessToken);
+            using (hProcessToken)
             {
-                AdvApi32.OpenProcessToken(cProcessSafeHandle, TOKEN_ACCESS_MASK.TOKEN_QUERY, out var hProcessToken);
-                using (hProcessToken)
-                {
-                    return GetPrivileges(hProcessToken);
-                }
+                return GetPrivileges(hProcessToken);
             }
         }
 
@@ -125,14 +99,20 @@ namespace PSADT.Security
         /// <param name="token"></param>
         /// <param name="privilege"></param>
         /// <returns></returns>
-        private static bool HasPrivilege(SafeFileHandle token, SE_PRIVILEGE privilege) => GetPrivileges(token).Contains(privilege);
+        private static bool HasPrivilege(SafeFileHandle token, SE_PRIVILEGE privilege)
+        {
+            return GetPrivileges(token).Contains(privilege);
+        }
 
         /// <summary>
         /// Determines whether a privilege is enabled in the current process token.
         /// </summary>
         /// <param name="privilege"></param>
         /// <returns></returns>
-        internal static bool HasPrivilege(SE_PRIVILEGE privilege) => AccountUtilities.CallerPrivileges.Contains(privilege);
+        internal static bool HasPrivilege(SE_PRIVILEGE privilege)
+        {
+            return AccountUtilities.CallerPrivileges.Contains(privilege);
+        }
 
         /// <summary>
         /// Determines whether a privilege is enabled in the specified token.
@@ -140,7 +120,10 @@ namespace PSADT.Security
         /// <param name="token"></param>
         /// <param name="privilege"></param>
         /// <returns></returns>
-        private static bool IsPrivilegeEnabled(SafeFileHandle token, SE_PRIVILEGE privilege) => GetPrivileges(token, TOKEN_PRIVILEGES_ATTRIBUTES.SE_PRIVILEGE_ENABLED).Contains(privilege);
+        private static bool IsPrivilegeEnabled(SafeFileHandle token, SE_PRIVILEGE privilege)
+        {
+            return GetPrivileges(token, TOKEN_PRIVILEGES_ATTRIBUTES.SE_PRIVILEGE_ENABLED).Contains(privilege);
+        }
 
         /// <summary>
         /// Determines whether a privilege is enabled in the current process token.
@@ -149,13 +132,11 @@ namespace PSADT.Security
         /// <returns></returns>
         internal static bool IsPrivilegeEnabled(SE_PRIVILEGE privilege)
         {
-            using (var cProcessSafeHandle = Kernel32.GetCurrentProcess())
+            using SafeProcessHandle cProcessSafeHandle = Kernel32.GetCurrentProcess();
+            _ = AdvApi32.OpenProcessToken(cProcessSafeHandle, TOKEN_ACCESS_MASK.TOKEN_QUERY, out SafeFileHandle hProcessToken);
+            using (hProcessToken)
             {
-                AdvApi32.OpenProcessToken(cProcessSafeHandle, TOKEN_ACCESS_MASK.TOKEN_QUERY, out var hProcessToken);
-                using (hProcessToken)
-                {
-                    return IsPrivilegeEnabled(hProcessToken, privilege);
-                }
+                return IsPrivilegeEnabled(hProcessToken, privilege);
             }
         }
 
@@ -170,17 +151,17 @@ namespace PSADT.Security
             {
                 throw new UnauthorizedAccessException($"The current process does not have the [{privilege}] privilege available.");
             }
-            AdvApi32.LookupPrivilegeValue(null, privilege.ToString(), out var luid);
-            var tp = new TOKEN_PRIVILEGES
+            _ = AdvApi32.LookupPrivilegeValue(privilege, out LUID luid);
+            TOKEN_PRIVILEGES tp = new()
             {
                 PrivilegeCount = 1,
             };
-            tp.Privileges[0] = new LUID_AND_ATTRIBUTES
+            tp.Privileges[0] = new()
             {
                 Luid = luid,
                 Attributes = TOKEN_PRIVILEGES_ATTRIBUTES.SE_PRIVILEGE_ENABLED
             };
-            AdvApi32.AdjustTokenPrivileges(token, tp);
+            _ = AdvApi32.AdjustTokenPrivileges(token, tp);
         }
 
         /// <summary>
@@ -189,37 +170,27 @@ namespace PSADT.Security
         /// <param name="privilege"></param>
         internal static void EnablePrivilege(SE_PRIVILEGE privilege)
         {
-            using (var cProcessSafeHandle = Kernel32.GetCurrentProcess())
+            using SafeProcessHandle cProcessSafeHandle = Kernel32.GetCurrentProcess();
+            _ = AdvApi32.OpenProcessToken(cProcessSafeHandle, TOKEN_ACCESS_MASK.TOKEN_QUERY | TOKEN_ACCESS_MASK.TOKEN_ADJUST_PRIVILEGES, out SafeFileHandle hProcessToken);
+            using (hProcessToken)
             {
-                AdvApi32.OpenProcessToken(cProcessSafeHandle, TOKEN_ACCESS_MASK.TOKEN_QUERY | TOKEN_ACCESS_MASK.TOKEN_ADJUST_PRIVILEGES, out var hProcessToken);
-                using (hProcessToken)
-                {
-                    EnablePrivilege(hProcessToken, privilege);
-                }
+                EnablePrivilege(hProcessToken, privilege);
             }
         }
 
         /// <summary>
-        /// Tests whether the current process has the specified access rights to a process handle.
+        /// Ensures that a security token is enabled.
         /// </summary>
-        /// <param name="token"></param>
-        /// <param name="accessRights"></param>
-        /// <returns></returns>
-        internal static bool TestProcessAccessRights(SafeProcessHandle token, PROCESS_ACCESS_RIGHTS accessRights)
+        /// <param name="privilege"></param>
+        internal static void EnablePrivilegeIfDisabled(SE_PRIVILEGE privilege)
         {
-            using (var cProcessSafeHandle = Kernel32.GetCurrentProcess())
+            using SafeProcessHandle cProcessSafeHandle = Kernel32.GetCurrentProcess();
+            _ = AdvApi32.OpenProcessToken(cProcessSafeHandle, TOKEN_ACCESS_MASK.TOKEN_QUERY | TOKEN_ACCESS_MASK.TOKEN_ADJUST_PRIVILEGES, out SafeFileHandle hProcessToken);
+            using (hProcessToken)
             {
-                try
+                if (!IsPrivilegeEnabled(hProcessToken, privilege))
                 {
-                    var res = Kernel32.DuplicateHandle(cProcessSafeHandle, token, cProcessSafeHandle, out var newHandle, accessRights, false, 0);
-                    using (newHandle)
-                    {
-                        return res;
-                    }
-                }
-                catch (UnauthorizedAccessException ex) when (ex.HResult == HRESULT.E_ACCESSDENIED)
-                {
-                    return false;
+                    EnablePrivilege(hProcessToken, privilege);
                 }
             }
         }

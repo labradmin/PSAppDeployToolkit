@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Security.Principal;
 using Microsoft.Win32;
 
@@ -26,34 +27,34 @@ namespace PSADT.AccountManagement
         public static IReadOnlyList<GroupPolicyAccountInfo> Get()
         {
             // Confirm we have a Group Policy Data Store to work with.
-            using var datastore = Registry.LocalMachine.OpenSubKey(GroupPolicyDataStorePath);
-            List<GroupPolicyAccountInfo> accountInfoList = [];
-            if (null == datastore)
+            using RegistryKey? datastore = Registry.LocalMachine.OpenSubKey(GroupPolicyDataStorePath);
+            if (datastore is null)
             {
-                return accountInfoList.AsReadOnly();
+                return new ReadOnlyCollection<GroupPolicyAccountInfo>([]);
             }
 
             // Create list to hold the account information and process each found SID, returning the accumulated results.
-            foreach (var sid in datastore.GetSubKeyNames())
+            List<GroupPolicyAccountInfo> accountInfoList = [];
+            foreach (string sid in datastore.GetSubKeyNames())
             {
                 // Skip over anything that's not a proper SID.
-                if (!sid.StartsWith("S-1-"))
+                if (!sid.StartsWith("S-1-", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
 
                 // Skip over the entry if there's no indices.
-                using var indices = Registry.LocalMachine.OpenSubKey($@"{GroupPolicyDataStorePath}\{sid}");
-                if (null == indices)
+                using RegistryKey? indices = Registry.LocalMachine.OpenSubKey($@"{GroupPolicyDataStorePath}\{sid}");
+                if (indices is null)
                 {
                     continue;
                 }
 
                 // Process each found index.
-                foreach (var index in indices.GetSubKeyNames())
+                foreach (string index in indices.GetSubKeyNames())
                 {
                     // If the username is available, add it to the list and skip to the next SID.
-                    using var info = Registry.LocalMachine.OpenSubKey($@"{GroupPolicyDataStorePath}\{sid}\{index}");
+                    using RegistryKey? info = Registry.LocalMachine.OpenSubKey($@"{GroupPolicyDataStorePath}\{sid}\{index}");
                     if (info?.GetValue("szName", null) is string username && !string.IsNullOrWhiteSpace(username))
                     {
                         accountInfoList.Add(new(new(username.Trim()), new(sid))); break;
@@ -83,7 +84,7 @@ namespace PSADT.AccountManagement
         /// </summary>
         /// <remarks>This field provides access to the NTAccount representation of the username, which can
         /// be used for security-related operations or identity management within the system.</remarks>
-        public readonly NTAccount Username;
+        public NTAccount Username { get; }
 
         /// <summary>
         /// Represents a security identifier (SID) that uniquely identifies a user, group, or computer account.
@@ -91,7 +92,7 @@ namespace PSADT.AccountManagement
         /// <remarks>A security identifier (SID) is a unique value used to identify a security principal
         /// in Windows-based systems. This field provides access to a predefined SID. The specific SID represented by
         /// this field depends on its context.</remarks>
-        public readonly SecurityIdentifier SID;
+        public SecurityIdentifier SID { get; }
 
         /// <summary>
         /// Represents the registry path to the Group Policy Data Store.

@@ -32,59 +32,59 @@ namespace PSADT.UserInterface.Dialogs.Classic
             // Initialise the form and reset the control order.
             // The designer tries to add its controls ahead of the base's.
             InitializeComponent();
-            this.SuspendLayout();
-            this.flowLayoutPanelBase.SuspendLayout();
-            this.flowLayoutPanelDialog.SuspendLayout();
+            SuspendLayout();
+            flowLayoutPanelBase.SuspendLayout();
+            flowLayoutPanelDialog.SuspendLayout();
 
             // Reset the dialog's title. It must be that of the string table in the options.
-            this.Text = StripFormattingTags(options.Strings.Title);
+            Text = StripFormattingTags(options.Strings.Title);
 
             // Apply options to the form if we have any (i.e. not in the designer).
-            if (null != options)
+            if (options is not null)
             {
                 // Set up the picturebox.
-                SetPictureBox(this.pictureBanner, options);
+                SetPictureBox(pictureBanner, options);
 
                 // Set the countdown timer.
-                if (null != options.CountdownDuration)
+                if (options.CountdownDuration is not null)
                 {
-                    this.countdownTimer = new(CountdownTimer_Tick, null, System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
-                    this.countdownDuration = options.CountdownDuration.Value;
-                    if (null != options.CountdownNoMinimizeDuration)
+                    countdownTimer = new(CountdownTimer_Tick, null, System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+                    countdownDuration = options.CountdownDuration.Value;
+                    if (options.CountdownNoMinimizeDuration is not null)
                     {
-                        this.minimizeDuration = options.CountdownNoMinimizeDuration.Value;
+                        minimizeDuration = options.CountdownNoMinimizeDuration.Value;
                     }
                 }
                 else
                 {
-                    this.flowLayoutPanelDialog.Controls.Remove(this.flowLayoutPanelCountdown);
+                    flowLayoutPanelDialog.Controls.Remove(flowLayoutPanelCountdown);
                 }
 
                 // Set the custom message text if we have one.
-                if (null != options.CustomMessageText)
+                if (options.CustomMessageText is not null)
                 {
-                    this.labelCustomMessage.Text = StripFormattingTags(options.CustomMessageText);
+                    labelCustomMessage.Text = StripFormattingTags(options.CustomMessageText);
                 }
                 else
                 {
-                    this.flowLayoutPanelDialog.Controls.Remove(this.labelCustomMessage);
+                    flowLayoutPanelDialog.Controls.Remove(labelCustomMessage);
                 }
 
                 // Set up remaining options.
-                this.labelMessage.Text = StripFormattingTags(options.Strings.Message);
-                this.labelRestartMessage.Text = StripFormattingTags($"{options.Strings.MessageTime} {options.Strings.MessageRestart}");
-                this.labelTimeRemaining.Text = StripFormattingTags(options.Strings.TimeRemaining);
-                this.buttonRestartNow.Text = StripFormattingTags(options.Strings.ButtonRestartNow);
-                this.buttonMinimize.Text = StripFormattingTags(options.Strings.ButtonRestartLater);
+                labelMessage.Text = StripFormattingTags(options.Strings.Message);
+                labelRestartMessage.Text = StripFormattingTags($"{options.Strings.MessageTime} {options.Strings.MessageRestart}");
+                labelTimeRemaining.Text = StripFormattingTags(options.Strings.TimeRemaining);
+                buttonRestartNow.Text = StripFormattingTags(options.Strings.ButtonRestartNow);
+                buttonMinimize.Text = StripFormattingTags(options.Strings.ButtonRestartLater);
             }
 
             // Resume the dialog now that we've applied any options.
-            this.flowLayoutPanelDialog.ResumeLayout(false);
-            this.flowLayoutPanelDialog.PerformLayout();
-            this.flowLayoutPanelBase.ResumeLayout(false);
-            this.flowLayoutPanelBase.PerformLayout();
-            this.ResumeLayout();
-            this.PerformLayout();
+            flowLayoutPanelDialog.ResumeLayout(false);
+            flowLayoutPanelDialog.PerformLayout();
+            flowLayoutPanelBase.ResumeLayout(false);
+            flowLayoutPanelBase.PerformLayout();
+            ResumeLayout();
+            PerformLayout();
         }
 
         /// <summary>
@@ -98,13 +98,16 @@ namespace PSADT.UserInterface.Dialogs.Classic
             base.Form_Load(sender, e);
 
             // Start the counterdown timer if we have one.
-            if (null != countdownTimer)
+            if (countdownTimer is not null)
             {
                 if (!countdownStopwatch.IsRunning)
                 {
                     countdownStopwatch.Start();
                 }
-                countdownTimer.Change(0, 1000);
+                if (!countdownTimer.Change(0, 1000))
+                {
+                    throw new InvalidOperationException("Failed to start the countdown timer.");
+                }
             }
         }
 
@@ -151,7 +154,7 @@ namespace PSADT.UserInterface.Dialogs.Classic
         {
             // Minimise the window and restart the persistence timer.
             // Note that we deliberately do not call the base handler!
-            this.WindowState = FormWindowState.Minimized;
+            WindowState = FormWindowState.Minimized;
             ResetPersistTimer();
         }
 
@@ -159,21 +162,22 @@ namespace PSADT.UserInterface.Dialogs.Classic
         /// Ticker for the countdown timer.
         /// </summary>
         /// <param name="state"></param>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0058:Expression value is never used", Justification = "We can't suppress a mix of object/void returns.")]
         private void CountdownTimer_Tick(object? state)
         {
-            var remaining = countdownDuration!.Value - countdownStopwatch.Elapsed;
+            TimeSpan remaining = countdownDuration!.Value - countdownStopwatch.Elapsed;
             if (remaining < TimeSpan.Zero)
             {
                 remaining = TimeSpan.Zero;
             }
-            this.Invoke(() => labelCountdown.Text = FormatTime(remaining));
+            _ = Invoke(() => labelCountdown.Text = FormatTime(remaining));
             if (remaining <= TimeSpan.Zero)
             {
-                this.Invoke(() => buttonRestartNow.PerformClick());
+                Invoke(buttonRestartNow.PerformClick);
             }
-            else if ((null != minimizeDuration) && (remaining <= minimizeDuration))
+            else if ((minimizeDuration is not null) && (remaining <= minimizeDuration))
             {
-                this.Invoke(() =>
+                Invoke(() =>
                 {
                     buttonMinimize.Enabled = false;
                     RestoreWindow();
@@ -184,6 +188,7 @@ namespace PSADT.UserInterface.Dialogs.Classic
         /// <summary>
         /// A restart countdown timer to perform an automatic reboot.
         /// </summary>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2213:Disposable fields should be disposed", Justification = "We can't override the designer's Dispose() implementation.")]
         private readonly System.Threading.Timer? countdownTimer;
 
         /// <summary>

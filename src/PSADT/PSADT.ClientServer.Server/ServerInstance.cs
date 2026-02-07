@@ -7,22 +7,17 @@ using System.IO.Pipes;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Win32.SafeHandles;
-using PSADT.AccountManagement;
+using PSADT.ClientServer.Payloads;
+using PSADT.Foundation;
 using PSADT.LibraryInterfaces;
-using PSADT.Module;
 using PSADT.ProcessManagement;
-using PSADT.SafeHandles;
-using PSADT.Security;
 using PSADT.Types;
 using PSADT.UserInterface.DialogOptions;
 using PSADT.UserInterface.DialogResults;
 using PSADT.UserInterface.Dialogs;
+using PSADT.Utilities;
 using PSADT.WindowManagement;
-using Windows.Win32;
-using Windows.Win32.Security;
-using Windows.Win32.Security.Authorization;
-using Windows.Win32.System.Threading;
+using PSAppDeployToolkit.Foundation;
 
 namespace PSADT.ClientServer
 {
@@ -34,9 +29,9 @@ namespace PSADT.ClientServer
     /// streams, and provides methods to send commands and retrieve responses. This class implements <see
     /// cref="IDisposable"/> to ensure proper cleanup of resources. <para> Typical usage involves creating an instance
     /// of <see cref="ServerInstance"/>, calling <see cref="Open"/> to initialize the client-server communication, and
-    /// using <see cref="Invoke(ClientServerCommandType)"/> to send commands to the client. Once the communication is
-    /// complete, the <see cref="Dispose"/> method should be called to release resources. </para></remarks>
-    public sealed class ServerInstance : IDisposable
+    /// using a number of predefined methods to send commands to the client. Once the communication is
+    /// complete, the <see cref="Dispose()"/> method should be called to release resources. </para></remarks>
+    public sealed record ServerInstance : IDisposable
     {
         /// <summary>
         /// Initializes a new instance of the <see cref="ServerInstance"/> class, setting up inter-process communication
@@ -52,9 +47,10 @@ namespace PSADT.ClientServer
             _outputServer = new(PipeDirection.Out, HandleInheritability.Inheritable);
             _inputServer = new(PipeDirection.In, HandleInheritability.Inheritable);
             _logServer = new(PipeDirection.In, HandleInheritability.Inheritable);
-            _outputWriter = new(_outputServer, Encoding.UTF8, true);
-            _inputReader = new(_inputServer, Encoding.UTF8, true);
-            _logReader = new(_logServer, Encoding.UTF8, true);
+            _outputWriter = new(_outputServer, DefaultEncoding);
+            _inputReader = new(_inputServer, DefaultEncoding);
+            _logReader = new(_logServer, DefaultEncoding);
+            _ioEncryption = new(); _logEncryption = new();
         }
 
         /// <summary>
@@ -65,115 +61,84 @@ namespace PSADT.ClientServer
         /// returning.</remarks>
         /// <exception cref="ApplicationException">Thrown if the client process fails to respond to the initial command, indicating that it is not properly
         /// initialized.</exception>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2201:Do not raise reserved exception types", Justification = "The use of ApplicationException is acceptable here.")]
         public void Open()
         {
             // Start the server to listen for incoming connections and process data.
+            bool outputServerClientSafePipeHandleAddRef = false;
+            bool inputServerClientSafePipeHandleAddRef = false;
+            bool logServerClientSafePipeHandleAddRef = false;
             try
             {
+                _outputServer.ClientSafePipeHandle.DangerousAddRef(ref outputServerClientSafePipeHandleAddRef);
+                _inputServer.ClientSafePipeHandle.DangerousAddRef(ref inputServerClientSafePipeHandleAddRef);
+                _logServer.ClientSafePipeHandle.DangerousAddRef(ref logServerClientSafePipeHandleAddRef);
+                string outputServerClientSafePipeHandle = _outputServer.GetClientHandleAsString();
+                string inputServerClientSafePipeHandle = _inputServer.GetClientHandleAsString();
+                string logServerClientSafePipeHandle = _logServer.GetClientHandleAsString();
                 _clientProcess = ProcessManager.LaunchAsync(new(
                     _assemblyLocation,
-                    new(["/ClientServer", "-InputPipe", _outputServer.GetClientHandleAsString(), "-OutputPipe", _inputServer.GetClientHandleAsString(), "-LogPipe", _logServer.GetClientHandleAsString()]),
+                    ["/ClientServer", "-InputPipe", outputServerClientSafePipeHandle, "-OutputPipe", inputServerClientSafePipeHandle, "-LogPipe", logServerClientSafePipeHandle],
                     Environment.SystemDirectory,
                     RunAsActiveUser,
                     UseLinkedAdminToken,
                     UseHighestAvailableToken,
-                    inheritHandles: true,
+                    denyUserTermination: true,
+                    handlesToInherit: [NumericalUtilities.ParseIntPtr(outputServerClientSafePipeHandle), NumericalUtilities.ParseIntPtr(inputServerClientSafePipeHandle), NumericalUtilities.ParseIntPtr(logServerClientSafePipeHandle)],
                     createNoWindow: true,
                     waitForChildProcesses: true,
                     killChildProcessesWithParent: true,
-                    streamEncoding: Encoding.UTF8,
+                    streamEncoding: DefaultEncoding,
                     windowStyle: ProcessWindowStyle.Hidden,
                     cancellationToken: (_clientProcessCts = new()).Token
                 ));
             }
             finally
             {
+                if (outputServerClientSafePipeHandleAddRef)
+                {
+                    _outputServer.ClientSafePipeHandle.DangerousRelease();
+                }
                 _outputServer.DisposeLocalCopyOfClientHandle();
+                if (inputServerClientSafePipeHandleAddRef)
+                {
+                    _inputServer.ClientSafePipeHandle.DangerousRelease();
+                }
                 _inputServer.DisposeLocalCopyOfClientHandle();
+                if (logServerClientSafePipeHandleAddRef)
+                {
+                    _logServer.ClientSafePipeHandle.DangerousRelease();
+                }
                 _logServer.DisposeLocalCopyOfClientHandle();
             }
 
-            // If the client/server process isn't ours, we'll want to change the owner to ourselves if we can.
-            bool changeOwner = false;
-            if (RunAsActiveUser.SID != AccountUtilities.CallerSid && PrivilegeManager.HasPrivilege(SE_PRIVILEGE.SeSecurityPrivilege) && PrivilegeManager.HasPrivilege(SE_PRIVILEGE.SeTakeOwnershipPrivilege))
+            // Perform ECDH key exchange for encrypted communication.
+            try
             {
-                PrivilegeManager.EnablePrivilegeIfDisabled(SE_PRIVILEGE.SeSecurityPrivilege);
-                PrivilegeManager.EnablePrivilegeIfDisabled(SE_PRIVILEGE.SeTakeOwnershipPrivilege);
-                changeOwner = true;
+                _ioEncryption.PerformServerKeyExchange(_outputWriter, _inputReader);
+                _logEncryption.PerformServerKeyExchange(_outputWriter, _inputReader);
             }
-
-            // Create a restricted access control list (ACL) for the client process so the user can't terminate it.
-            byte[] userSid = new byte[RunAsActiveUser.SID.BinaryLength]; RunAsActiveUser.SID.GetBinaryForm(userSid, 0);
-            using (SafePinnedGCHandle pinnedUserSid = SafePinnedGCHandle.Alloc(userSid))
+            catch (Exception ex)
             {
-                bool pinnedUserSidAddRef = false;
-                try
-                {
-                    // Generate an explicit access control entry (ACE) for the user SID.
-                    pinnedUserSid.DangerousAddRef(ref pinnedUserSidAddRef);
-                    var ea = new EXPLICIT_ACCESS_W
-                    {
-                        grfAccessPermissions = (uint)(PROCESS_ACCESS_RIGHTS.PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_ACCESS_RIGHTS.PROCESS_SYNCHRONIZE),
-                        grfAccessMode = ACCESS_MODE.GRANT_ACCESS,
-                        grfInheritance = ACE_FLAGS.NO_INHERITANCE,
-                        Trustee = new TRUSTEE_W
-                        {
-                            TrusteeForm = TRUSTEE_FORM.TRUSTEE_IS_SID,
-                            ptstrName = new(pinnedUserSid.DangerousGetHandle())
-                        }
-                    };
-
-                    // Apply the ACL and potentially change the owner of the client process.
-                    AdvApi32.SetEntriesInAcl([ea], null, out var pAcl);
-                    using (SafeProcessHandle hProcess = new(_clientProcess!.Process.Handle, false))
-                    using (pAcl)
-                    {
-                        if (changeOwner)
-                        {
-                            byte[] callerSid = new byte[AccountUtilities.CallerSid.BinaryLength]; AccountUtilities.CallerSid.GetBinaryForm(callerSid, 0);
-                            using SafePinnedGCHandle pinnedCallerSid = SafePinnedGCHandle.Alloc(callerSid);
-                            bool pinnedCallerSidAddRef = false;
-                            try
-                            {
-                                pinnedCallerSid.DangerousAddRef(ref pinnedCallerSidAddRef);
-                                using FreeSidSafeHandle pCallerSid = new(pinnedCallerSid.DangerousGetHandle(), false);
-                                AdvApi32.SetSecurityInfo(hProcess, SE_OBJECT_TYPE.SE_KERNEL_OBJECT, OBJECT_SECURITY_INFORMATION.OWNER_SECURITY_INFORMATION | OBJECT_SECURITY_INFORMATION.DACL_SECURITY_INFORMATION, pCallerSid, null, pAcl, null);
-                            }
-                            finally
-                            {
-                                if (pinnedCallerSidAddRef)
-                                {
-                                    pinnedCallerSid.DangerousRelease();
-                                }
-                            }
-                        }
-                        else
-                        {
-                            AdvApi32.SetSecurityInfo(hProcess, SE_OBJECT_TYPE.SE_KERNEL_OBJECT, OBJECT_SECURITY_INFORMATION.DACL_SECURITY_INFORMATION, null, null, pAcl, null);
-                        }
-                    }
-                }
-                finally
-                {
-                    if (pinnedUserSidAddRef)
-                    {
-                        pinnedUserSid.DangerousRelease();
-                    }
-                }
+                throw new ApplicationException("Failed to establish encrypted communication with the client process.", ex);
             }
 
             // Confirm the client starts and is ready to receive commands.
             bool? opened = null;
             try
             {
-                if (!(opened = Invoke<bool>("Open")).Value)
+                if (!(opened = (bool)Invoke(PipeCommand.Open)!).Value)
                 {
                     throw new ApplicationException("The opened client process is not properly responding to commands.");
                 }
             }
+            catch (InvalidDataException ex) when (_clientProcess?.Task is null)
+            {
+                throw new ApplicationException("The opened client process is not properly responding to commands.", ex);
+            }
             finally
             {
-                if (null == opened || !opened.Value)
+                if (opened is null || !opened.Value)
                 {
                     Close(true);
                 }
@@ -196,27 +161,46 @@ namespace PSADT.ClientServer
         /// <exception cref="InvalidOperationException">Thrown if the server instance is not open or has already been closed.</exception>
         /// <exception cref="ApplicationException">Thrown if the client process does not properly respond to the close command and <paramref name="force"/> is <see
         /// langword="false"/>.</exception>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2201:Do not raise reserved exception types", Justification = "The use of ApplicationException is acceptable here.")]
         internal void Close(bool force = false)
         {
             // Confirm that the server instance is open and has not been closed already.
-            if (null == _clientProcessCts || null == _clientProcess)
+            if (_clientProcessCts is null || _clientProcess is null)
             {
                 throw new InvalidOperationException("The server instance is not open or has already been closed.");
             }
 
-            // Ensure the client process closes no matter what.
-            bool? closed = null;
+            // Shut down the client if it's running.
+            int exitCode = -1;
             try
             {
-                if (!force && IsRunning && !(closed = Invoke<bool>("Close")).Value)
+                if (IsRunning)
                 {
-                    throw new ApplicationException("The opened client process did not properly respond to the close command.");
+                    if (!force)
+                    {
+                        if (!(bool)Invoke(PipeCommand.Close)!)
+                        {
+                            throw new ApplicationException("The opened client process did not properly respond to the close command.");
+                        }
+                        if ((exitCode = _clientProcess.Task.GetAwaiter().GetResult().ExitCode) != 0)
+                        {
+                            throw new ApplicationException($"The client process exited with a non-zero exit code: {exitCode}.");
+                        }
+                    }
+                    else
+                    {
+                        _clientProcessCts.Cancel();
+                    }
+                }
+                else
+                {
+                    exitCode = 0;
                 }
             }
             finally
             {
                 // Close the log writer and wait for it to finish.
-                if (null != _logWriterTaskCts && null != _logWriterTask)
+                if (_logWriterTaskCts is not null && _logWriterTask is not null)
                 {
                     _logWriterTaskCts.Cancel();
                     try
@@ -236,18 +220,25 @@ namespace PSADT.ClientServer
                     }
                 }
 
-                // Close the client process and wait for it to exit.
-                if (null == closed || !closed.Value)
-                {
-                    _clientProcessCts.Cancel();
-                }
+                // Clean up the client process resources.
                 try
                 {
-                    _clientProcess.Task.GetAwaiter().GetResult();
-                }
-                catch (TaskCanceledException)
-                {
-                    // The client process task was canceled, which is expected when closing the server instance.
+                    // We only need to cancel if we didn't get an exit code already.
+                    if (exitCode == -1)
+                    {
+                        if (!_clientProcessCts.IsCancellationRequested)
+                        {
+                            _clientProcessCts.Cancel();
+                        }
+                        try
+                        {
+                            exitCode = _clientProcess.Task.GetAwaiter().GetResult().ExitCode;
+                        }
+                        catch (TaskCanceledException)
+                        {
+                            // The client process task was canceled, which is expected when closing the server instance.
+                        }
+                    }
                 }
                 finally
                 {
@@ -266,7 +257,10 @@ namespace PSADT.ClientServer
         /// <remarks>This method closes the connection and optionally performs additional cleanup
         /// operations depending on the internal implementation. Once closed, the connection cannot be reused and must
         /// be reopened if needed.</remarks>
-        public void Close() => Close(false);
+        public void Close()
+        {
+            Close(false);
+        }
 
         /// <summary>
         /// Initializes a dialog to close specified applications.
@@ -279,8 +273,7 @@ namespace PSADT.ClientServer
         /// <returns><see langword="true"/> if the dialog was successfully initialized; otherwise, <see langword="false"/>.</returns>
         public bool InitCloseAppsDialog(ReadOnlyCollection<ProcessDefinition>? closeProcesses)
         {
-            _logSource = "Show-ADTInstallationWelcome";
-            return Invoke<bool>($"InitCloseAppsDialog{(null != closeProcesses ? $"{CommonUtilities.ArgumentSeparator}{DataSerialization.SerializeToString(closeProcesses)}" : null)}");
+            return (bool)Invoke(PipeCommand.InitCloseAppsDialog, closeProcesses is not null ? new InitCloseAppsDialogPayload(closeProcesses) : null)!;
         }
 
         /// <summary>
@@ -291,8 +284,7 @@ namespace PSADT.ClientServer
         /// <returns><see langword="true"/> if the user agrees to close the applications; otherwise, <see langword="false"/>.</returns>
         public bool PromptToCloseApps(TimeSpan promptToCloseTimeout)
         {
-            _logSource = "Show-ADTInstallationWelcome";
-            return Invoke<bool>($"PromptToCloseApps{CommonUtilities.ArgumentSeparator}{promptToCloseTimeout}");
+            return (bool)Invoke(PipeCommand.PromptToCloseApps, new PromptToCloseAppsPayload(promptToCloseTimeout))!;
         }
 
         /// <summary>
@@ -305,7 +297,10 @@ namespace PSADT.ClientServer
         /// <param name="options">The options for configuring the dialog, such as the list of applications to close and additional settings.</param>
         /// <returns>A <see cref="CloseAppsDialogResult"/> indicating the user's response to the dialog. The result may include
         /// information about whether the user chose to close the applications or canceled the operation.</returns>
-        public CloseAppsDialogResult ShowCloseAppsDialog(DialogStyle dialogStyle, CloseAppsDialogOptions options) => ShowModalDialog<CloseAppsDialogResult, CloseAppsDialogOptions>(DialogType.CloseAppsDialog, dialogStyle, options);
+        public CloseAppsDialogResult ShowCloseAppsDialog(DialogStyle dialogStyle, CloseAppsDialogOptions options)
+        {
+            return (CloseAppsDialogResult)(long)ShowModalDialog(DialogType.CloseAppsDialog, dialogStyle, options)!;
+        }
 
         /// <summary>
         /// Displays a custom dialog with the specified style and options, and returns the user's input as a string.
@@ -316,7 +311,10 @@ namespace PSADT.ClientServer
         /// <param name="dialogStyle">The style of the dialog, which determines its appearance and behavior.</param>
         /// <param name="options">The options to configure the dialog, such as title, message, and input settings.</param>
         /// <returns>The user's input as a string, or <see langword="null"/> if the dialog is canceled.</returns>
-        public string ShowCustomDialog(DialogStyle dialogStyle, CustomDialogOptions options) => ShowModalDialog<string, CustomDialogOptions>(DialogType.CustomDialog, dialogStyle, options);
+        public string ShowCustomDialog(DialogStyle dialogStyle, CustomDialogOptions options)
+        {
+            return (string)ShowModalDialog(DialogType.CustomDialog, dialogStyle, options)!;
+        }
 
         /// <summary>
         /// Displays an input dialog to the user and returns the result of the interaction.
@@ -327,7 +325,10 @@ namespace PSADT.ClientServer
         /// <param name="dialogStyle">The style of the dialog, which determines its appearance and behavior.</param>
         /// <param name="options">The options to configure the input dialog, such as the prompt text, default value, and validation rules.</param>
         /// <returns>An <see cref="InputDialogResult"/> object containing the user's input and the dialog's outcome.</returns>
-        public InputDialogResult ShowInputDialog(DialogStyle dialogStyle, InputDialogOptions options) => ShowModalDialog<InputDialogResult, InputDialogOptions>(DialogType.InputDialog, dialogStyle, options);
+        public InputDialogResult ShowInputDialog(DialogStyle dialogStyle, InputDialogOptions options)
+        {
+            return (InputDialogResult)ShowModalDialog(DialogType.InputDialog, dialogStyle, options)!;
+        }
 
         /// <summary>
         /// Displays a restart dialog to the user and returns the user's input as a string.
@@ -339,7 +340,10 @@ namespace PSADT.ClientServer
         /// <param name="options">The options to configure the restart dialog, such as title, message, and default values.</param>
         /// <returns>A string representing the user's input from the dialog. The value may vary depending on the dialog
         /// configuration and user interaction.</returns>
-        public string ShowRestartDialog(DialogStyle dialogStyle, RestartDialogOptions options) => ShowModalDialog<string, RestartDialogOptions>(DialogType.RestartDialog, dialogStyle, options);
+        public string ShowRestartDialog(DialogStyle dialogStyle, RestartDialogOptions options)
+        {
+            return (string)ShowModalDialog(DialogType.RestartDialog, dialogStyle, options)!;
+        }
 
         /// <summary>
         /// Displays a modal dialog box with the specified options, and returns the result of the dialog interaction.
@@ -349,7 +353,10 @@ namespace PSADT.ClientServer
         /// indicate the user's action (e.g., OK, Cancel).</remarks>
         /// <param name="options">The options to configure the dialog box, such as title, message, and input fields.</param>
         /// <returns>A <see cref="DialogBoxResult"/> that represents the result of the user's interaction with the dialog box.</returns>
-        public DialogBoxResult ShowDialogBox(DialogBoxOptions options) => ShowModalDialog<DialogBoxResult, DialogBoxOptions>(DialogType.DialogBox, 0, options);
+        public DialogBoxResult ShowDialogBox(DialogBoxOptions options)
+        {
+            return (DialogBoxResult)(long)ShowModalDialog(DialogType.DialogBox, 0, options)!;
+        }
 
         /// <summary>
         /// Displays a progress dialog with the specified style and options.
@@ -364,8 +371,7 @@ namespace PSADT.ClientServer
         /// langword="false"/>.</returns>
         public bool ShowProgressDialog(DialogStyle dialogStyle, ProgressDialogOptions options)
         {
-            _logSource = "Show-ADTInstallationProgress";
-            return Invoke<bool>($"ShowProgressDialog{CommonUtilities.ArgumentSeparator}{dialogStyle}{CommonUtilities.ArgumentSeparator}{DataSerialization.SerializeToString(options)}");
+            return (bool)Invoke(PipeCommand.ShowProgressDialog, new ShowProgressDialogPayload(dialogStyle, options))!;
         }
 
         /// <summary>
@@ -374,7 +380,10 @@ namespace PSADT.ClientServer
         /// <remarks>This method checks the state of the progress dialog and returns a boolean value
         /// indicating whether it is currently displayed to the user.</remarks>
         /// <returns><see langword="true"/> if the progress dialog is open; otherwise, <see langword="false"/>.</returns>
-        public bool ProgressDialogOpen() => Invoke<bool>("ProgressDialogOpen");
+        public bool ProgressDialogOpen()
+        {
+            return (bool)Invoke(PipeCommand.ProgressDialogOpen)!;
+        }
 
         /// <summary>
         /// Updates the progress dialog with the specified message, detail message, progress percentage, and message
@@ -393,8 +402,11 @@ namespace PSADT.ClientServer
         /// <returns><see langword="true"/> if the progress dialog was successfully updated; otherwise, <see langword="false"/>.</returns>
         public bool UpdateProgressDialog(string? progressMessage = null, string? progressDetailMessage = null, double? progressPercentage = null, DialogMessageAlignment? messageAlignment = null)
         {
-            _logSource = "Show-ADTInstallationProgress";
-            return Invoke<bool>($"UpdateProgressDialog{CommonUtilities.ArgumentSeparator}{(!string.IsNullOrWhiteSpace(progressMessage) ? progressMessage : ' ')}{CommonUtilities.ArgumentSeparator}{(!string.IsNullOrWhiteSpace(progressDetailMessage) ? progressDetailMessage : ' ')}{CommonUtilities.ArgumentSeparator}{((null != progressPercentage) ? progressPercentage.ToString() : ' ')}{CommonUtilities.ArgumentSeparator}{((null != messageAlignment) ? messageAlignment.ToString() : ' ')}");
+            return (bool)Invoke(PipeCommand.UpdateProgressDialog, new UpdateProgressDialogPayload(
+                !string.IsNullOrWhiteSpace(progressMessage) ? progressMessage : null,
+                !string.IsNullOrWhiteSpace(progressDetailMessage) ? progressDetailMessage : null,
+                progressPercentage,
+                messageAlignment))!;
         }
 
         /// <summary>
@@ -406,8 +418,7 @@ namespace PSADT.ClientServer
         /// <returns><see langword="true"/> if the progress dialog was successfully closed; otherwise, <see langword="false"/>.</returns>
         public bool CloseProgressDialog()
         {
-            _logSource = "Close-ADTInstallationProgress";
-            return Invoke<bool>("CloseProgressDialog");
+            return (bool)Invoke(PipeCommand.CloseProgressDialog)!;
         }
 
         /// <summary>
@@ -419,12 +430,10 @@ namespace PSADT.ClientServer
         /// are invalid.</remarks>
         /// <param name="options">The configuration options for the balloon tip, including its title, text, icon, and duration. This parameter
         /// cannot be null.</param>
-        /// value.</param>
         /// <returns><see langword="true"/> if the balloon tip was successfully displayed; otherwise, <see langword="false"/>.</returns>
         public bool ShowBalloonTip(BalloonTipOptions options)
         {
-            _logSource = "Show-ADTBalloonTip";
-            return Invoke<bool>($"ShowBalloonTip{CommonUtilities.ArgumentSeparator}{DataSerialization.SerializeToString(options)}");
+            return (bool)Invoke(PipeCommand.ShowBalloonTip, new ShowBalloonTipPayload(options))!;
         }
 
         /// <summary>
@@ -434,7 +443,10 @@ namespace PSADT.ClientServer
         /// indicates whether the operation was successful. Note that the success of this operation may depend on
         /// system permissions or the current state of the desktop environment.</remarks>
         /// <returns><see langword="true"/> if the operation succeeds; otherwise, <see langword="false"/>.</returns>
-        public bool MinimizeAllWindows() => Invoke<bool>("MinimizeAllWindows");
+        public bool MinimizeAllWindows()
+        {
+            return (bool)Invoke(PipeCommand.MinimizeAllWindows)!;
+        }
 
         /// <summary>
         /// Restores all minimized or hidden windows to their original state.
@@ -442,21 +454,23 @@ namespace PSADT.ClientServer
         /// <remarks>This method attempts to restore all windows that were previously minimized or hidden.
         /// The return value indicates whether the operation was successful for all windows.</remarks>
         /// <returns><see langword="true"/> if all windows were successfully restored; otherwise, <see langword="false"/>.</returns>
-        public bool RestoreAllWindows() => Invoke<bool>("RestoreAllWindows");
+        public bool RestoreAllWindows()
+        {
+            return (bool)Invoke(PipeCommand.RestoreAllWindows)!;
+        }
 
         /// <summary>
         /// Sends a sequence of keystrokes to the specified window.
         /// </summary>
         /// <remarks>Ensure that the specified window handle is valid and the target window is capable of
-        /// receiving keystrokes. The format of the <paramref name="keys"/> parameter may depend on the underlying
+        /// receiving keystrokes. The format of the <paramref name="options"/> parameter may depend on the underlying
         /// implementation.</remarks>
         /// <param name="options">The configuration options that specify the keys to send and their associated behavior. This parameter cannot
         /// be null.</param>
         /// <returns><see langword="true"/> if the keystrokes were successfully sent; otherwise, <see langword="false"/>.</returns>
         public bool SendKeys(SendKeysOptions options)
         {
-            _logSource = "Send-ADTKeys";
-            return Invoke<bool>($"SendKeys{CommonUtilities.ArgumentSeparator}{options}");
+            return (bool)Invoke(PipeCommand.SendKeys, new SendKeysPayload(options))!;
         }
 
         /// <summary>
@@ -472,8 +486,7 @@ namespace PSADT.ClientServer
         /// specified filters. If no filters are provided, all windows are included in the result.</returns>
         public IReadOnlyList<WindowInfo> GetProcessWindowInfo(WindowInfoOptions options)
         {
-            _logSource = "Get-ADTWindowTitle";
-            return Invoke<ReadOnlyCollection<WindowInfo>>($"GetProcessWindowInfo{CommonUtilities.ArgumentSeparator}{DataSerialization.SerializeToString(options)}");
+            return (ReadOnlyCollection<WindowInfo>)Invoke(PipeCommand.GetProcessWindowInfo, new GetProcessWindowInfoPayload(options))!;
         }
 
         /// <summary>
@@ -485,8 +498,7 @@ namespace PSADT.ClientServer
         /// <returns><see langword="true"/> if the operation succeeds; otherwise, <see langword="false"/>.</returns>
         public bool RefreshDesktopAndEnvironmentVariables()
         {
-            _logSource = "Refresh-ADTDesktopAndEnvironmentVariables";
-            return Invoke<bool>("RefreshDesktopAndEnvironmentVariables");
+            return (bool)Invoke(PipeCommand.RefreshDesktopAndEnvironmentVariables)!;
         }
 
         /// <summary>
@@ -498,8 +510,7 @@ namespace PSADT.ClientServer
         /// <returns>An instance of <see cref="QUERY_USER_NOTIFICATION_STATE"/> representing the user's notification state.</returns>
         public QUERY_USER_NOTIFICATION_STATE GetUserNotificationState()
         {
-            _logSource = "Get-ADTUserNotificationState";
-            return Invoke<QUERY_USER_NOTIFICATION_STATE>("GetUserNotificationState");
+            return (QUERY_USER_NOTIFICATION_STATE)(long)Invoke(PipeCommand.GetUserNotificationState)!;
         }
 
         /// <summary>
@@ -510,62 +521,76 @@ namespace PSADT.ClientServer
         /// <returns>The process ID of the application that owns the foreground window.</returns>
         public uint GetForegroundWindowProcessId()
         {
-            _logSource = "Get-ADTForegroundWindowProcessId";
-            return Invoke<uint>("GetForegroundWindowProcessId");
+            return (uint)(long)Invoke(PipeCommand.GetForegroundWindowProcessId)!;
         }
 
         /// <summary>
-        /// Retrieves the value of a specified environment variable.
+        /// Retrieves the value of the specified environment variable from the remote environment.
         /// </summary>
-        /// <param name="variable"></param>
-        /// <returns></returns>
-        public string? GetEnvironmentVariable(string variable)
+        /// <param name="variable">The name of the environment variable to retrieve. Cannot be null or empty.</param>
+        /// <returns>The value of the specified environment variable, or null if the variable is not found.</returns>
+        public string GetEnvironmentVariable(string variable)
         {
-            _logSource = "Get-ADTEnvironmentVariable";
-            return Invoke<string?>($"GetEnvironmentVariable{CommonUtilities.ArgumentSeparator}{variable}");
+            return (string)Invoke(PipeCommand.GetEnvironmentVariable, new EnvironmentVariablePayload(variable))!;
         }
 
         /// <summary>
-        /// Sets the value of a specified environment variable.
+        /// Sets, appends to, or removes an environment variable with the specified name and value.
         /// </summary>
-        /// <param name="variable"></param>
-        /// <param name="value"></param>
-        /// <returns></returns>
-        public bool SetEnvironmentVariable(string variable, string value)
+        /// <remarks>If <paramref name="remove"/> is <see langword="true"/>, the environment variable is
+        /// removed regardless of the values of <paramref name="value"/>, <paramref name="expandable"/>, or <paramref
+        /// name="append"/>. If <paramref name="append"/> is <see langword="true"/>, the specified value is appended to
+        /// the existing value, if any. Use <paramref name="expandable"/> to indicate that the value contains references
+        /// to other environment variables (such as %PATH%).</remarks>
+        /// <param name="variable">The name of the environment variable to set, append to, or remove. Cannot be null or empty.</param>
+        /// <param name="value">The value to assign to the environment variable. If <paramref name="remove"/> is <see langword="true"/>,
+        /// this parameter is ignored.</param>
+        /// <param name="expandable">true to mark the variable as expandable (e.g., allows references to other environment variables within its
+        /// value); otherwise, false.</param>
+        /// <param name="append">true to append the specified value to the existing value of the environment variable; otherwise, false to
+        /// overwrite the value.</param>
+        /// <param name="remove">true to remove the environment variable; otherwise, false to set or append the value.</param>
+        /// <returns>true if the operation succeeds; otherwise, false.</returns>
+        public bool SetEnvironmentVariable(string variable, string value, bool expandable, bool append, bool remove)
         {
-            _logSource = "Set-ADTEnvironmentVariable";
-            return Invoke<bool>($"SetEnvironmentVariable{CommonUtilities.ArgumentSeparator}{variable}{CommonUtilities.ArgumentSeparator}{value}");
+            return (bool)Invoke(PipeCommand.SetEnvironmentVariable, new EnvironmentVariablePayload(variable, value, expandable, append, remove))!;
         }
 
         /// <summary>
-        /// Removes a specified environment variable for the user.
+        /// Removes the specified environment variable from the current environment.
         /// </summary>
-        /// <param name="variable"></param>
-        /// <returns></returns>
+        /// <param name="variable">The name of the environment variable to remove. Cannot be null or empty.</param>
+        /// <returns>true if the environment variable was successfully removed; otherwise, false.</returns>
         public bool RemoveEnvironmentVariable(string variable)
         {
-            _logSource = "Remove-ADTEnvironmentVariable";
-            return Invoke<bool>($"RemoveEnvironmentVariable{CommonUtilities.ArgumentSeparator}{variable}");
+            return (bool)Invoke(PipeCommand.RemoveEnvironmentVariable, new EnvironmentVariablePayload(variable))!;
         }
 
         /// <summary>
         /// Retrieves the exception, if any, that occurred during the execution of the log writer task.
         /// </summary>
-        /// <returns>An <see cref="AggregateException"/> containing the exceptions thrown by the log writer task,  or <see
+        /// <returns>An <see cref="AggregateException"/> containing the exceptions thrown by the log writer task, or <see
         /// langword="null"/> if no exception occurred or the task has not been initialized.</returns>
-        public AggregateException? GetLogWriterException() => _logWriterTask?.Exception;
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1024:Use properties where appropriate", Justification = "I like methods.")]
+        public AggregateException? GetLogWriterException()
+        {
+            return _logWriterTask?.Exception;
+        }
 
         /// <summary>
         /// Retrieves the result of the client process task.
         /// </summary>
-        /// <remarks>This method blocks the current thread if <paramref name="iKnowWhatImDoing"/> is <see
+        /// <remarks>This method blocks the current thread if <paramref name="confirm"/> is <see
         /// langword="true"/>. Use with caution, as blocking the thread can lead to deadlocks or performance issues in
         /// asynchronous environments.</remarks>
-        /// <param name="iKnowWhatImDoing">A value indicating whether the caller understands the risks of blocking the current thread. If <see
+        /// <param name="confirm">A value indicating whether the caller understands the risks of blocking the current thread. If <see
         /// langword="true"/>, the method will synchronously wait for the client process task to complete.</param>
-        /// <returns>The result of the client process task if <paramref name="iKnowWhatImDoing"/> is <see langword="true"/>; 
+        /// <returns>The result of the client process task if <paramref name="confirm"/> is <see langword="true"/>; 
         /// otherwise, <see langword="null"/>.</returns>
-        public ProcessResult GetClientProcessResult(bool iKnowWhatImDoing) => iKnowWhatImDoing ? _clientProcess!.Task.GetAwaiter().GetResult() : null!;
+        public ProcessResult GetClientProcessResult(bool confirm)
+        {
+            return confirm ? _clientProcess!.Task.GetAwaiter().GetResult() : null!;
+        }
 
         /// <summary>
         /// Releases the resources used by the current instance of the class.
@@ -598,76 +623,66 @@ namespace PSADT.ClientServer
             if (disposing)
             {
                 // Close the client process if it is running.
-                if (null != _clientProcess)
+                if (_clientProcess is not null)
                 {
                     Close();
                 }
 
-                // Kill all input.
-                _inputReader.Dispose();
-                _inputReader = null!;
-                _inputServer.Dispose();
-                _inputServer = null!;
+                // Dispose encryption objects.
+                _logEncryption.Dispose();
+                _ioEncryption.Dispose();
 
-                // Kill all output.
-                _outputWriter.Dispose();
-                _outputWriter = null!;
-                _outputServer.Dispose();
-                _outputServer = null!;
-
-                // Kill all logging.
+                // Dispose readers and writers.
                 _logReader.Dispose();
-                _logReader = null!;
+                _inputReader.Dispose();
+                _outputWriter.Dispose();
+
+                // Dispose pipe servers.
                 _logServer.Dispose();
-                _logServer = null!;
+                _inputServer.Dispose();
+                _outputServer.Dispose();
             }
             _disposed = true;
         }
 
         /// <summary>
-        /// Displays a modal dialog of the specified type and style, passing the provided options, and returns the
-        /// result.
+        /// Invokes a modal dialog command and sets the appropriate log source.
         /// </summary>
-        /// <remarks>The method serializes the provided <paramref name="options"/> and sends them to the
-        /// dialog system. The result is deserialized into the specified type <typeparamref name="TResult"/>.</remarks>
-        /// <typeparam name="TResult">The type of the result returned by the dialog.</typeparam>
-        /// <typeparam name="TOptions">The type of the options passed to the dialog.</typeparam>
         /// <param name="dialogType">The type of the dialog to display.</param>
         /// <param name="dialogStyle">The style of the dialog to display.</param>
-        /// <param name="options">The options to configure the dialog. This parameter cannot be null.</param>
-        /// <returns>The result of the dialog, deserialized to the specified type <typeparamref name="TResult"/>.</returns>
-        private TResult ShowModalDialog<TResult, TOptions>(DialogType dialogType, DialogStyle dialogStyle, TOptions options)
+        /// <param name="options">The options to configure the dialog.</param>
+        /// <returns>The result from the dialog.</returns>
+        private object? ShowModalDialog(DialogType dialogType, DialogStyle dialogStyle, object options)
         {
-            _logSource = dialogType switch
-            {
-                DialogType.CloseAppsDialog => "Show-ADTInstallationWelcome",
-                DialogType.CustomDialog => "Show-ADTInstallationPrompt",
-                DialogType.DialogBox => "Show-ADTDialogBox",
-                DialogType.InputDialog => "Show-ADTInstallationPrompt",
-                DialogType.ProgressDialog => "Show-ADTInstallationProgress",
-                DialogType.RestartDialog => "Show-ADTInstallationRestartPrompt",
-                _ => throw new ArgumentOutOfRangeException(nameof(dialogType), $"Unsupported dialog type: {dialogType}"),
-            };
-            return Invoke<TResult>($"ShowModalDialog{CommonUtilities.ArgumentSeparator}{dialogType}{CommonUtilities.ArgumentSeparator}{dialogStyle}{CommonUtilities.ArgumentSeparator}{DataSerialization.SerializeToString(options)}");
+            return Invoke(PipeCommand.ShowModalDialog, new ShowModalDialogPayload(dialogType, dialogStyle, options));
         }
 
         /// <summary>
-        /// Executes the specified command and deserializes the result into an object of type <typeparamref name="T"/>.
+        /// Executes the specified command and returns the result from the client.
         /// </summary>
-        /// <remarks>This method writes the provided command, processes the result, and deserializes it
-        /// into the specified type. Ensure that the command produces a result that can be successfully deserialized
-        /// into the expected type.</remarks>
-        /// <typeparam name="T">The type of the object to deserialize the result into.</typeparam>
-        /// <param name="command">The command to execute. Cannot be null or empty.</param>
-        /// <returns>An object of type <typeparamref name="T"/> representing the deserialized result of the command execution.</returns>
-        private T Invoke<T>(string command)
+        /// <remarks>This method sends a <see cref="PipeRequest"/> to the client, processes the
+        /// <see cref="PipeResponse"/>, and returns the result. Callers are responsible for casting
+        /// the result to the expected type.</remarks>
+        /// <param name="command">The command to execute.</param>
+        /// <param name="payload">Optional payload data for the command.</param>
+        /// <returns>The result from the client, or null if no result was returned.</returns>
+        private object? Invoke(PipeCommand command, IPayload? payload = null)
         {
-            _outputWriter.Write(command);
-            _outputWriter.Flush();
-            string response;
+            // Send the encrypted request to the client.
             try
             {
-                response = _inputReader.ReadString();
+                _ioEncryption.WriteEncrypted(_outputWriter, DataSerialization.SerializeToString(new PipeRequest(command, payload)));
+            }
+            catch (IOException ex)
+            {
+                throw new InvalidDataException("An error occurred while writing to the output stream.", ex);
+            }
+
+            // Read and decrypt the client's response.
+            PipeResponse response;
+            try
+            {
+                response = DataSerialization.DeserializeFromString<PipeResponse>(_ioEncryption.ReadEncrypted(_inputReader));
             }
             catch (EndOfStreamException ex)
             {
@@ -677,11 +692,9 @@ namespace PSADT.ClientServer
             {
                 throw new InvalidDataException("An error occurred while reading from the input stream.", ex);
             }
-            if (response.StartsWith($"Error{CommonUtilities.ArgumentSeparator}"))
-            {
-                throw new ServerException("The client process returned an exception.", DataSerialization.DeserializeFromString<Exception>(response.Substring(6)));
-            }
-            return DataSerialization.DeserializeFromString<T>(response);
+
+            // If the response indicates failure, rethrow the error, otherwise just return the result.
+            return response.Error is null ? response.Result : throw new ServerException("The client process returned an exception.", response.Error);
         }
 
         /// <summary>
@@ -696,19 +709,13 @@ namespace PSADT.ClientServer
             {
                 try
                 {
-                    // Only log the message if a deployment session is active.
-                    if (_logReader.ReadString() is string line && ModuleDatabase.IsDeploymentSessionActive())
+                    // Read and decrypt the log message, then process it if a deployment session is active.
+                    // We must read it before if there's a deployment session active to clear the queue.
+                    if (_logEncryption.ReadEncrypted(_logReader) is string encrypted && ModuleDatabase.IsDeploymentSessionActive())
                     {
-                        // Test the line for a log severity.
-                        if (line.Contains(CommonUtilities.ArgumentSeparator.ToString()))
-                        {
-                            var parts = line.Split(CommonUtilities.ArgumentSeparator);
-                            ModuleDatabase.GetDeploymentSession().WriteLogEntry(parts[1].Trim(), (LogSeverity)int.Parse(parts[0]), _logSource);
-                        }
-                        else
-                        {
-                            ModuleDatabase.GetDeploymentSession().WriteLogEntry(line.Trim(), _logSource);
-                        }
+                        // Deserialize the log message DTO.
+                        LogMessagePayload logMessage = DataSerialization.DeserializeFromString<LogMessagePayload>(encrypted);
+                        ModuleDatabase.GetDeploymentSession().WriteLogEntry(logMessage.Message.Trim(), logMessage.Severity, logMessage.Source);
                     }
                 }
                 catch (OperationCanceledException)
@@ -735,12 +742,20 @@ namespace PSADT.ClientServer
         /// <remarks>This field stores details about the user's session, such as authentication or
         /// user-specific data. It is intended for internal use and should not be exposed directly to external
         /// consumers.</remarks>
-        public readonly RunAsActiveUser RunAsActiveUser;
+        public RunAsActiveUser RunAsActiveUser { get; }
 
         /// <summary>
         /// Gets a value indicating whether the process is currently running.
         /// </summary>
-        public bool IsRunning => null != _clientProcess && !_clientProcess.Process.HasExited;
+        public bool IsRunning => _clientProcess?.Process.HasExited == false;
+
+        /// <summary>
+        /// Represents the sentinel character used to indicate a successful operation or status.
+        /// </summary>
+        /// <remarks>The value of this constant is the Unicode character U+001F (Unit Separator). It can
+        /// be used as a marker in protocols or data streams to signify success. Ensure that the receiving system
+        /// interprets this character as intended, as it is a non-printable control character.</remarks>
+        public const string SuccessSentinel = "\x1F";
 
         /// <summary>
         /// Indicates whether a linked administrator token should be used.
@@ -757,6 +772,15 @@ namespace PSADT.ClientServer
         internal const bool UseHighestAvailableToken = true;
 
         /// <summary>
+        /// Provides a default instance of UTF8Encoding configured to not emit a byte order mark (BOM) and to throw on
+        /// invalid bytes.
+        /// </summary>
+        /// <remarks>This encoding instance is suitable for scenarios where a BOM should be omitted and
+        /// strict error checking is required. It can be reused to avoid creating multiple identical encoding
+        /// objects.</remarks>
+        internal static UTF8Encoding DefaultEncoding = new(false, true);
+
+        /// <summary>
         /// Indicates whether the object has been disposed.
         /// </summary>
         /// <remarks>This field is used internally to track the disposal state of the object. It should
@@ -769,7 +793,7 @@ namespace PSADT.ClientServer
         /// <remarks>This field is used to manage the server stream for logging purposes. It provides a
         /// communication channel between processes, allowing data to be sent from the server to a connected
         /// client.</remarks>
-        private AnonymousPipeServerStream _logServer;
+        private readonly AnonymousPipeServerStream _logServer;
 
         /// <summary>
         /// Represents a server-side anonymous pipe stream for reading data.
@@ -777,7 +801,7 @@ namespace PSADT.ClientServer
         /// <remarks>This pipe stream is initialized with an input direction and inheritable handle
         /// settings, allowing it to be used for inter-process communication where the handle can be passed to a child
         /// process.</remarks>
-        private AnonymousPipeServerStream _inputServer;
+        private readonly AnonymousPipeServerStream _inputServer;
 
         /// <summary>
         /// Represents the server side of an anonymous pipe used for interprocess communication.
@@ -785,26 +809,40 @@ namespace PSADT.ClientServer
         /// <remarks>This pipe server is initialized with an output direction and allows the handle to be
         /// inherited by child processes. It is typically used to send data from the current process to another
         /// process.</remarks>
-        private AnonymousPipeServerStream _outputServer;
+        private readonly AnonymousPipeServerStream _outputServer;
 
         /// <summary>
         /// Represents the stream reader used to read log data.
         /// </summary>
         /// <remarks>This field is intended for internal use and provides access to the underlying stream
         /// for reading log information. It is not exposed publicly.</remarks>
-        private BinaryReader _logReader;
+        private readonly BinaryReader _logReader;
 
         /// <summary>
         /// Represents the <see cref="StreamReader"/> used to read input data from a stream.
         /// </summary>
         /// <remarks>This field is read-only and is intended for internal use to process input streams.</remarks>
-        private BinaryReader _inputReader;
+        private readonly BinaryReader _inputReader;
 
         /// <summary>
         /// Represents the output stream writer used for writing data to a stream.
         /// </summary>
         /// <remarks>This field is read-only and is intended to be used internally for managing output operations.</remarks>
-        private BinaryWriter _outputWriter;
+        private readonly BinaryWriter _outputWriter;
+
+        /// <summary>
+        /// Provides ECDH-based encryption for the main command/response pipe communication.
+        /// </summary>
+        /// <remarks>This encryption instance is used to encrypt commands sent to the client and decrypt
+        /// responses received from the client, ensuring secure communication across different security contexts.</remarks>
+        private readonly PipeEncryption _ioEncryption;
+
+        /// <summary>
+        /// Provides ECDH-based encryption for the log pipe communication.
+        /// </summary>
+        /// <remarks>This separate encryption instance is used for the log channel to allow independent
+        /// encrypted communication for logging purposes.</remarks>
+        private readonly PipeEncryption _logEncryption;
 
         /// <summary>
         /// Represents an asynchronous operation that retrieves the result of a client process.
@@ -835,13 +873,6 @@ namespace PSADT.ClientServer
         /// <remarks>This field is used internally to signal cancellation for the log writer task. It is
         /// initialized as a new instance of <see cref="CancellationTokenSource"/>.</remarks>
         private CancellationTokenSource? _logWriterTaskCts;
-
-        /// <summary>
-        /// Represents the source identifier for logging related to the "Show-ADTModalDialog" functionality.
-        /// </summary>
-        /// <remarks>This constant is used to tag log entries originating from the "Show-ADTModalDialog"
-        /// feature. It is intended for internal use and helps in categorizing and filtering logs.</remarks>
-        private static string _logSource = null!;
 
         /// <summary>
         /// Represents the file path of the assembly named "PSADT.ClientServer.Client.exe" currently loaded in the

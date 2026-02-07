@@ -6,11 +6,15 @@ namespace PSADT.Types
     /// <summary>
     /// Represents an LNK (Windows Shortcut) file.
     /// </summary>
-    public sealed class ShortcutLnk : ShortcutBase
+    public sealed record ShortcutLnk : ShortcutBase
     {
         /// <summary>
         /// Initializes a new instance of the <see cref="ShortcutLnk"/> class with specified properties.
         /// </summary>
+        /// <param name="path">Path to the shortcut file.</param>
+        /// <param name="targetPath">Path to the target application.</param>
+        /// <param name="iconLocation">Location of the icon for the shortcut.</param>
+        /// <param name="iconIndex">Index of the icon within the icon location.</param>
         /// <param name="arguments">Arguments passed to the target application.</param>
         /// <param name="description">Description of the shortcut.</param>
         /// <param name="workingDirectory">Working directory for the target application.</param>
@@ -49,10 +53,10 @@ namespace PSADT.Types
             }
 
             // Check if it contains a valid modifier
-            string[] validModifiers = { "Ctrl", "Alt", "Shift" };
-            string[] validKeys = { "A-Z", "0-9", "F1-F12", "Insert", "Delete", "Home", "End" };
+            string[] validModifiers = ["Ctrl", "Alt", "Shift"];
+            string[] validKeys = ["A-Z", "0-9", "F1-F12", "Insert", "Delete", "Home", "End"];
             bool containsModifier = false;
-            foreach (var part in parts)
+            foreach (string part in parts)
             {
                 if (IndexOfAny(part, validModifiers, StringComparison.OrdinalIgnoreCase) >= 0)
                 {
@@ -63,7 +67,7 @@ namespace PSADT.Types
 
             // Check if it contains a valid key
             bool containsValidKey = false;
-            foreach (var part in parts)
+            foreach (string part in parts)
             {
                 if (IndexOfAny(part, validKeys, StringComparison.OrdinalIgnoreCase) >= 0)
                 {
@@ -77,32 +81,32 @@ namespace PSADT.Types
         /// <summary>
         /// The window style for the shortcut.
         /// </summary>
-        public readonly string? WindowStyle;
+        public string? WindowStyle { get; }
 
         /// <summary>
         /// Gets or sets the arguments passed to the target application when the shortcut is executed.
         /// </summary>
-        public readonly string? Arguments;
+        public string? Arguments { get; }
 
         /// <summary>
         /// Gets or sets the description of the shortcut.
         /// </summary>
-        public readonly string? Description;
+        public string? Description { get; }
 
         /// <summary>
         /// Gets or sets the working directory for the shortcut's target application.
         /// </summary>
-        public readonly string? WorkingDirectory;
+        public string? WorkingDirectory { get; }
 
         /// <summary>
         /// Gets or sets the hotkey associated with the shortcut.
         /// </summary>
-        public readonly string? Hotkey;
+        public string? Hotkey { get; }
 
         /// <summary>
         /// Gets or sets a value indicating whether the shortcut requires administrative privileges to run.
         /// </summary>
-        public readonly bool RunAsAdmin;
+        public bool RunAsAdmin { get; }
 
         /// <summary>
         /// Helper method to check if any string in the list exists within the target string using StringComparison.
@@ -113,7 +117,7 @@ namespace PSADT.Types
         /// <returns>The index of the first occurrence of any string in the list, or -1 if none found.</returns>
         private static int IndexOfAny(string target, string[] list, StringComparison comparison)
         {
-            foreach (var item in list)
+            foreach (string item in list)
             {
                 int index = target.IndexOf(item, comparison);
                 if (index >= 0)

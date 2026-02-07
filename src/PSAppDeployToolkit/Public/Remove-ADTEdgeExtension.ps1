@@ -15,7 +15,7 @@ function Remove-ADTEdgeExtension
 
         This enables Edge Extensions to be installed and managed like applications, enabling extensions to be pushed to specific devices or users alongside existing GPO/Intune extension policies.
 
-        This should not be used in conjunction with Edge Management Service which leverages the same registry key to configure Edge extensions.
+        This should not be used in conjunction with Edge Management Service or "Configure extension management settings" as configured via Group Policy or Intune as they leverage the same registry key to configure Edge extensions.
 
     .PARAMETER ExtensionID
         The ID of the extension to remove.
@@ -40,16 +40,18 @@ function Remove-ADTEdgeExtension
 
         This function is provided as a template to remove an extension for Microsoft Edge. This should not be used in conjunction with Edge Management Service which leverages the same registry key to configure Edge extensions.
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
         https://psappdeploytoolkit.com/docs/reference/functions/Remove-ADTEdgeExtension
     #>
 
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param
     (
         [Parameter(Mandatory = $true)]
@@ -77,8 +79,11 @@ function Remove-ADTEdgeExtension
                 }
 
                 # If the deploymentmode is Remove, remove the extension from the list.
-                $installedExtensions.PSObject.Properties.Remove($ExtensionID)
-                $null = Set-ADTRegistryKey -Key Microsoft.PowerShell.Core\Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Edge -Name ExtensionSettings -Value ($installedExtensions | ConvertTo-Json -Compress)
+                if ($PSCmdlet.ShouldProcess("Edge Extension [$ExtensionID]", 'Remove extension'))
+                {
+                    $installedExtensions.PSObject.Properties.Remove($ExtensionID)
+                    $null = Set-ADTRegistryKey -Key Microsoft.PowerShell.Core\Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Edge -Name ExtensionSettings -Value ($installedExtensions | ConvertTo-Json -Compress)
+                }
             }
             catch
             {

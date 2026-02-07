@@ -15,9 +15,6 @@ function Update-ADTEnvironmentPsProvider
 
         Use this function to refresh the current PowerShell session with all environment variable settings.
 
-    .PARAMETER LoadLoggedOnUserEnvironmentVariables
-        If script is running in SYSTEM context, this option allows loading environment variables from the active console user. If no console user exists but users are logged in, such as on terminal servers, then the first logged-in non-console user.
-
     .INPUTS
         None
 
@@ -38,7 +35,7 @@ function Update-ADTEnvironmentPsProvider
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -48,9 +45,6 @@ function Update-ADTEnvironmentPsProvider
     [CmdletBinding()]
     param
     (
-        [Parameter(Mandatory = $false)]
-        [System.Obsolete("This parameter is deprecated and will be removed in PSAppDeployToolkit 4.2.0.")]
-        [System.Management.Automation.SwitchParameter]$LoadLoggedOnUserEnvironmentVariables
     )
 
     begin
@@ -58,11 +52,7 @@ function Update-ADTEnvironmentPsProvider
         Initialize-ADTFunction -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState
 
         # Determine the user SID to base things off of.
-        if ($LoadLoggedOnUserEnvironmentVariables)
-        {
-            Write-ADTLogEntry -Message "The parameter [-LoadLoggedOnUserEnvironmentVariables] is deprecated and will be removed in PSAppDeployToolkit 4.2.0." -Severity 2
-        }
-        $userSid = if ($LoadLoggedOnUserEnvironmentVariables -and ($runAsActiveUser = Get-ADTClientServerUser -AllowSystemFallback))
+        $userSid = if (($runAsActiveUser = Get-ADTClientServerUser -AllowSystemFallback))
         {
             $runAsActiveUser.SID
         }
@@ -96,7 +86,7 @@ function Update-ADTEnvironmentPsProvider
                 }
 
                 # Set PATH environment variable separately because it is a combination of the user and machine environment variables.
-                Set-Item -LiteralPath Microsoft.PowerShell.Core\Environment::PATH -Value ([System.String]::Join(';', (([System.Environment]::GetEnvironmentVariable('PATH', 'Machine'), [System.Environment]::GetEnvironmentVariable('PATH', 'User')).Split(';').Trim() | & { process { if ($_) { return $_ } } } | Select-Object -Unique)))
+                Set-Item -LiteralPath Microsoft.PowerShell.Core\Environment::PATH -Value ([System.String]::Join(';', (([PSADT.Utilities.EnvironmentUtilities]::GetEnvironmentVariable('PATH', 'Machine'), [PSADT.Utilities.EnvironmentUtilities]::GetEnvironmentVariable('PATH', 'User')).Split(';', [System.StringSplitOptions]::RemoveEmptyEntries).Trim() | Select-Object -Unique)))
             }
             catch
             {

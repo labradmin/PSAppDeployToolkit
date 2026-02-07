@@ -40,24 +40,24 @@ function Invoke-ADTAllUsersRegistryAction
 
     .EXAMPLE
         Invoke-ADTAllUsersRegistryAction -ScriptBlock {
-            Set-ADTRegistryKey -Key 'HKCU\Software\Microsoft\Office\14.0\Common' -Name 'qmenable' -Value 0 -Type DWord -SID $_.SID
-            Set-ADTRegistryKey -Key 'HKCU\Software\Microsoft\Office\14.0\Common' -Name 'updatereliabilitydata' -Value 1 -Type DWord -SID $_.SID
+            Set-ADTRegistryKey -SID $_.SID -LiteralPath 'HKCU\Software\Microsoft\Office\14.0\Common' -Name 'qmenable' -Value 0 -Type DWord
+            Set-ADTRegistryKey -SID $_.SID -LiteralPath 'HKCU\Software\Microsoft\Office\14.0\Common' -Name 'updatereliabilitydata' -Value 1 -Type DWord
         }
 
         Example demonstrating the setting of two values within each user's HKEY_CURRENT_USER hive.
 
     .EXAMPLE
         Invoke-ADTAllUsersRegistryAction {
-            Set-ADTRegistryKey -Key 'HKCU\Software\Microsoft\Office\14.0\Common' -Name 'qmenable' -Value 0 -Type DWord -SID $_.SID
-            Set-ADTRegistryKey -Key 'HKCU\Software\Microsoft\Office\14.0\Common' -Name 'updatereliabilitydata' -Value 1 -Type DWord -SID $_.SID
+            Set-ADTRegistryKey -SID $_.SID -LiteralPath 'HKCU\Software\Microsoft\Office\14.0\Common' -Name 'qmenable' -Value 0 -Type DWord
+            Set-ADTRegistryKey -SID $_.SID -LiteralPath 'HKCU\Software\Microsoft\Office\14.0\Common' -Name 'updatereliabilitydata' -Value 1 -Type DWord
         }
 
         As the previous example, but showing how to use ScriptBlock as a positional parameter with no name specified.
 
     .EXAMPLE
         Invoke-ADTAllUsersRegistryAction -UserProfiles (Get-ADTUserProfiles -ExcludeDefaultUser) -ScriptBlock {
-            Set-ADTRegistryKey -Key 'HKCU\Software\Microsoft\Office\14.0\Common' -Name 'qmenable' -Value 0 -Type DWord -SID $_.SID
-            Set-ADTRegistryKey -Key 'HKCU\Software\Microsoft\Office\14.0\Common' -Name 'updatereliabilitydata' -Value 1 -Type DWord -SID $_.SID
+            Set-ADTRegistryKey -SID $_.SID -LiteralPath 'HKCU\Software\Microsoft\Office\14.0\Common' -Name 'qmenable' -Value 0 -Type DWord
+            Set-ADTRegistryKey -SID $_.SID -LiteralPath 'HKCU\Software\Microsoft\Office\14.0\Common' -Name 'updatereliabilitydata' -Value 1 -Type DWord
         }
 
         As the previous example, but sending specific user profiles through to exclude the Default profile.
@@ -65,16 +65,18 @@ function Invoke-ADTAllUsersRegistryAction
     .NOTES
         An active ADT session is NOT required to use this function.
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
         https://psappdeploytoolkit.com/docs/reference/functions/Invoke-ADTAllUsersRegistryAction
     #>
 
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param
     (
         [Parameter(Mandatory = $true, Position = 0)]
@@ -83,7 +85,7 @@ function Invoke-ADTAllUsersRegistryAction
 
         [Parameter(Mandatory = $false)]
         [ValidateNotNullOrEmpty()]
-        [PSADT.Types.UserProfile[]]$UserProfiles,
+        [PSADT.Types.UserProfileInfo[]]$UserProfiles,
 
         [Parameter(Mandatory = $false)]
         [System.Management.Automation.SwitchParameter]$SkipUnloadedProfiles
@@ -143,7 +145,7 @@ function Invoke-ADTAllUsersRegistryAction
                                 $naerParams = @{
                                     Exception = [System.IO.FileNotFoundException]::new("Failed to find the registry hive file [$($regHive.Path)] for User [$($UserProfile.NTAccount)] with SID [$($UserProfile.SID)]. Continue...")
                                     Category = [System.Management.Automation.ErrorCategory]::ObjectNotFound
-                                    ErrorId = "$([System.IO.Path]::GetFileNameWithoutExtension($regHive.Path).ToUpper())RegistryHiveFileNotFound"
+                                    ErrorId = "$([System.IO.Path]::GetFileNameWithoutExtension($regHive.Path).ToUpperInvariant())RegistryHiveFileNotFound"
                                     TargetObject = $regHive.Path
                                     RecommendedAction = "Please confirm the state of this user profile and try again."
                                 }
@@ -156,7 +158,10 @@ function Invoke-ADTAllUsersRegistryAction
 
                     # Invoke changes against registry.
                     Write-ADTLogEntry -Message "Executing scriptblock to modify HKCU registry settings for [$($UserProfile.NTAccount)]."
-                    ForEach-Object -InputObject $UserProfile -Begin $null -End $null -Process $ScriptBlock
+                    if ($PSCmdlet.ShouldProcess("User [$($UserProfile.NTAccount)] registry hive", 'Modify'))
+                    {
+                        ForEach-Object -InputObject $UserProfile -Begin $null -End $null -Process $ScriptBlock
+                    }
                 }
                 catch
                 {

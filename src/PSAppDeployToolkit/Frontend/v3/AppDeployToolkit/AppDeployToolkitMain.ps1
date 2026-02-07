@@ -8,11 +8,11 @@ The script can be called directly to dot-source the toolkit functions for testin
 
 The script can usually be updated to the latest version without impacting your per-application Deploy-Application scripts. Please check release notes before upgrading.
 
-PSAppDeployToolkit is licensed under the GNU LGPLv3 License - © 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).
+PSAppDeployToolkit is licensed under the GNU LGPLv3 License - © 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).
 
 This program is free software: you can redistribute it and/or modify it under the terms of the GNU Lesser General Public License as published by the
 Free Software Foundation, either version 3 of the License, or any later version. This program is distributed in the hope that it will be useful, but
-WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Lesser General Public License
 for more details. You should have received a copy of the GNU Lesser General Public License along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 .INPUTS
@@ -225,7 +225,7 @@ function Invoke-HKCURegistrySettingsForAllUsers
 
         [Parameter(Mandatory = $false)]
         [ValidateNotNullOrEmpty()]
-        [PSADT.Types.UserProfile[]]$UserProfiles
+        [PSADT.Types.UserProfileInfo[]]$UserProfiles
     )
 
     # Set strict mode to the highest within this function's scope.
@@ -551,7 +551,7 @@ function Remove-MSIApplications
                     {
                         if ($_[1] -is [System.Boolean])
                         {
-                            "`$_.$($_[0]) -eq `$$($_[1].ToString().ToLower())"
+                            "`$_.$($_[0]) -eq `$$($_[1].ToString().ToLowerInvariant())"
                         }
                         else
                         {
@@ -583,7 +583,7 @@ function Remove-MSIApplications
                     {
                         if ($_[1] -is [System.Boolean])
                         {
-                            "`$_.$($_[0]) -ne `$$($_[1].ToString().ToLower())"
+                            "`$_.$($_[0]) -ne `$$($_[1].ToString().ToLowerInvariant())"
                         }
                         else
                         {
@@ -1099,7 +1099,7 @@ function Show-InstallationPrompt
         [System.Management.Automation.SwitchParameter]$PersistPrompt,
 
         [Parameter(Mandatory = $false)]
-        [System.Management.Automation.SwitchParameter]$MinimizeWindows,
+        [System.Boolean]$MinimizeWindows = $false,
 
         [Parameter(Mandatory = $false)]
         [ValidateNotNullOrEmpty()]
@@ -5101,26 +5101,20 @@ Set-StrictMode -Version 3
 $adtModule = if (Test-Path -LiteralPath "$PSScriptRoot\PSAppDeployToolkit" -PathType Container)
 {
     Get-ChildItem -LiteralPath $PSScriptRoot\PSAppDeployToolkit -Recurse -File | Unblock-File
-    Import-Module -FullyQualifiedName @{ ModuleName = "$PSScriptRoot\PSAppDeployToolkit\PSAppDeployToolkit.psd1"; Guid = '8c3c366b-8606-4576-9f2d-4051144f7ca2'; ModuleVersion = '4.1.5' } -Force -PassThru -ErrorAction Stop
+    Import-Module -FullyQualifiedName @{ ModuleName = "$PSScriptRoot\PSAppDeployToolkit\PSAppDeployToolkit.psd1"; Guid = '8c3c366b-8606-4576-9f2d-4051144f7ca2'; ModuleVersion = '4.2.0' } -Force -PassThru -ErrorAction Stop
 }
 elseif (Test-Path -LiteralPath "$PSScriptRoot\..\..\..\..\PSAppDeployToolkit" -PathType Container)
 {
     Get-ChildItem -LiteralPath $PSScriptRoot\..\..\..\..\PSAppDeployToolkit -Recurse -File | Unblock-File
-    Import-Module -FullyQualifiedName @{ ModuleName = "$PSScriptRoot\..\..\..\..\PSAppDeployToolkit\PSAppDeployToolkit.psd1"; Guid = '8c3c366b-8606-4576-9f2d-4051144f7ca2'; ModuleVersion = '4.1.5' } -Force -PassThru -ErrorAction Stop
+    Import-Module -FullyQualifiedName @{ ModuleName = "$PSScriptRoot\..\..\..\..\PSAppDeployToolkit\PSAppDeployToolkit.psd1"; Guid = '8c3c366b-8606-4576-9f2d-4051144f7ca2'; ModuleVersion = '4.2.0' } -Force -PassThru -ErrorAction Stop
 }
 else
 {
-    Import-Module -FullyQualifiedName @{ ModuleName = 'PSAppDeployToolkit'; Guid = '8c3c366b-8606-4576-9f2d-4051144f7ca2'; ModuleVersion = '4.1.5' } -Force -PassThru -ErrorAction Stop
+    Import-Module -FullyQualifiedName @{ ModuleName = 'PSAppDeployToolkit'; Guid = '8c3c366b-8606-4576-9f2d-4051144f7ca2'; ModuleVersion = '4.2.0' } -Force -PassThru -ErrorAction Stop
 }
 
-# Build out parameter hashtable and open a new deployment session.
-$sessionParams = $adtModule.ExportedCommands.'Open-ADTSession'.Parameters.Values | & {
-    begin
-    {
-        # Open collector to hold valid parameters.
-        $sessionParams = @{}
-    }
-
+# Build out parameter hashtable.
+$sessionParams = @{}; $adtModule.ExportedCommands.'Open-ADTSession'.Parameters.Values | & {
     process
     {
         # Skip any Open-ADTSession params that are considered frontend params/variables.
@@ -5141,32 +5135,28 @@ $sessionParams = $adtModule.ExportedCommands.'Open-ADTSession'.Parameters.Values
             $sessionParams.Add($variable.Name, $variable.Value)
         }
     }
+}
 
-    end
+# Remove dates if they fail to parse using local culture settings.
+if ($sessionParams.ContainsKey('AppScriptDate'))
+{
+    try
     {
-        # Remove dates if they fail to parse using local culture settings.
-        if ($sessionParams.ContainsKey('AppScriptDate'))
-        {
-            try
-            {
-                $sessionParams.AppScriptDate = [System.DateTime]::Parse($sessionParams.AppScriptDate, $Host.CurrentCulture)
-            }
-            catch
-            {
-                $null = $sessionParams.Remove('AppScriptDate')
-            }
-        }
-
-        # Redefine DeployAppScriptParameters due bad casting in Deploy-Application.ps1.
-        if ($sessionParams.ContainsKey('DeployAppScriptParameters'))
-        {
-            $sessionParams.DeployAppScriptParameters = (Get-PSCallStack)[1].InvocationInfo.BoundParameters
-        }
-
-        # Return the dictionary to the caller.
-        return $sessionParams
+        $sessionParams.AppScriptDate = [System.DateTime]::Parse($sessionParams.AppScriptDate, $Host.CurrentCulture)
+    }
+    catch
+    {
+        $null = $sessionParams.Remove('AppScriptDate')
     }
 }
+
+# Redefine DeployAppScriptParameters due bad casting in Deploy-Application.ps1.
+if ($sessionParams.ContainsKey('DeployAppScriptParameters'))
+{
+    $sessionParams.DeployAppScriptParameters = (Get-PSCallStack)[1].InvocationInfo.BoundParameters
+}
+
+# Open a new deployment session.
 Open-ADTSession -SessionState $ExecutionContext.SessionState @sessionParams
 
 # Define aliases for some functions to maintain backwards compatibility.

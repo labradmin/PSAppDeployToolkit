@@ -30,7 +30,7 @@ function Test-ADTMutexAvailability
         System.Boolean. Returns $true if the current thread acquires an exclusive lock on the named mutex, $false otherwise.
 
     .EXAMPLE
-        Test-ADTMutexAvailability -MutexName 'Global\_MSIExecute' -MutexWaitTime 5000000
+        Test-ADTMutexAvailability -MutexName 'Global\_MSIExecute' -MutexWaitTime 00:00:05
 
     .EXAMPLE
         Test-ADTMutexAvailability -MutexName 'Global\_MSIExecute' -MutexWaitTime (New-TimeSpan -Minutes 5)
@@ -43,7 +43,7 @@ function Test-ADTMutexAvailability
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -84,7 +84,7 @@ function Test-ADTMutexAvailability
         }
         $IsUnhandledException = $false
         $IsMutexFree = $false
-        [System.Threading.Mutex]$OpenExistingMutex = $null
+        $OpenExistingMutex = $null
     }
 
     process

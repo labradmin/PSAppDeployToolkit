@@ -39,7 +39,7 @@ function Initialize-ADTModule
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -111,7 +111,7 @@ function Initialize-ADTModule
                     {
                         [System.String[]]$Script:ADT.Directories.$_ = foreach ($directory in $Script:ADT.Directories.Script)
                         {
-                            if (Test-Path -LiteralPath (Join-Path -Path $directory -ChildPath "$_\$($_.ToLower()).psd1") -PathType Leaf)
+                            if (Test-Path -LiteralPath (Join-Path -Path $directory -ChildPath "$_\$($_.ToLowerInvariant()).psd1") -PathType Leaf)
                             {
                                 (Join-Path -Path $directory -ChildPath $_).Trim()
                             }
@@ -124,7 +124,7 @@ function Initialize-ADTModule
                 }
 
                 # Invoke all callbacks.
-                foreach ($callback in $($Script:ADT.Callbacks.([PSADT.Module.CallbackType]::OnInit)))
+                foreach ($callback in $($Script:ADT.Callbacks.([PSAppDeployToolkit.Foundation.CallbackType]::OnInit)))
                 {
                     & $callback
                 }

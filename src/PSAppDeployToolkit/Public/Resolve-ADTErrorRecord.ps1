@@ -66,7 +66,7 @@ function Resolve-ADTErrorRecord
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -122,11 +122,11 @@ function Resolve-ADTErrorRecord
             # If we've asked for all properties, return early with the above.
             if ($propsIsWildCard)
             {
-                return $properties | & { process { if (![System.String]::IsNullOrWhiteSpace(($InputObject.$_ | Out-String).Trim())) { return $_ } } }
+                return $properties | & { process { if (![System.String]::IsNullOrWhiteSpace(($InputObject.$_ | Out-String))) { return $_ } } }
             }
 
             # Return all valid properties in the order used by the caller.
-            return $Property | & { process { if (($properties -contains $_) -and ![System.String]::IsNullOrWhiteSpace(($InputObject.$_ | Out-String).Trim())) { return $_ } } }
+            return $Property | & { process { if (($properties -contains $_) -and ![System.String]::IsNullOrWhiteSpace(($InputObject.$_ | Out-String))) { return $_ } } }
         }
     }
 

@@ -1,59 +1,22 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFrameworks>net472;net8.0-windows10.0.18362.0</TargetFrameworks>
     <OutputType>Library</OutputType>
-    <PlatformTarget>AnyCPU</PlatformTarget>
-    <NoWarn>$(NoWarn)</NoWarn>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
-    <LangVersion>latest</LangVersion>
-    <Deterministic>true</Deterministic>
-    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
-    <Nullable>enable</Nullable>
-    <GenerateSupportedRuntime>false</GenerateSupportedRuntime>
     <RootNamespace>PSADT.UserInterface</RootNamespace>
     <AssemblyName>PSADT.UserInterface</AssemblyName>
     <Product>PSAppDeployToolkit User Interface Library</Product>
-    <Company>PSAppDeployToolkit Team</Company>
-    <Copyright>Copyright © 2025 PSAppDeployToolkit Team. All rights reserved.</Copyright>
     <AssemblyTitle>PSAppDeployToolkit User Interface Library</AssemblyTitle>
     <AssemblyDescription>This product provides user interface capabilities to PSAppDeployToolkit.</AssemblyDescription>
-    <AssemblyCompany>PSAppDeployToolkit Team</AssemblyCompany>
-    <AssemblyVersion>4.1.5.0</AssemblyVersion>
-    <InformationalVersion>4.1.5</InformationalVersion>
-    <Platforms>AnyCPU</Platforms>
-    <AllowUnsafeBlocks>False</AllowUnsafeBlocks>
-    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
-    <TreatWarningsAsErrors>True</TreatWarningsAsErrors>
-    <CheckForOverflowUnderflow>True</CheckForOverflowUnderflow>
-    <WarningLevel>9999</WarningLevel>
-    <GenerateDocumentationFile>False</GenerateDocumentationFile>
-    <DebugSymbols>true</DebugSymbols>
-    <DebugType>full</DebugType>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|net472|AnyCPU'">
-    <Optimize>false</Optimize>
-    <PreferNativeArm64>True</PreferNativeArm64>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|net8.0-windows10.0.18362.0|AnyCPU'">
-    <Optimize>false</Optimize>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|net472|AnyCPU'">
-    <Optimize>true</Optimize>
-    <PreferNativeArm64>True</PreferNativeArm64>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|net8.0-windows10.0.18362.0|AnyCPU'">
-    <Optimize>true</Optimize>
+    <NoWarn>SYSLIB1045</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\lib\iNKORE.UI.WPF.Modern\source\iNKORE.UI.WPF.Modern.Controls\iNKORE.UI.WPF.Modern.Controls.csproj" />
     <ProjectReference Include="..\..\..\lib\iNKORE.UI.WPF.Modern\source\iNKORE.UI.WPF.Modern\iNKORE.UI.WPF.Modern.csproj" />
     <ProjectReference Include="..\..\PSADT\PSADT\PSADT.csproj" />
+    <ProjectReference Include="..\PSAppDeployToolkit\PSAppDeployToolkit.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -93,12 +56,8 @@
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows10.0.18362.0'">
     <PackageReference Include="System.Management.Automation" Version="7.4.*" PrivateAssets="all" />
-    <PackageReference Include="Microsoft.Windows.Compatibility" Version="9.0.9" />
-    <PackageReference Include="System.Collections.Immutable" Version="9.0.9" />
-    <PackageReference Include="System.Reflection.Metadata" Version="9.0.9" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <EmbeddedResource Include="..\..\..\COPYING.Lesser" />
+    <PackageReference Include="Microsoft.Windows.Compatibility" Version="10.0.2" />
+    <PackageReference Include="System.Collections.Immutable" Version="10.0.2" />
+    <PackageReference Include="System.Reflection.Metadata" Version="10.0.2" />
   </ItemGroup>
 </Project>

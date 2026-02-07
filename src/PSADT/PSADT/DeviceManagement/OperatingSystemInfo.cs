@@ -1,6 +1,6 @@
 ﻿using System;
-using System.Linq;
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
 using PSADT.LibraryInterfaces;
@@ -24,6 +24,7 @@ namespace PSADT.DeviceManagement
         private OperatingSystemInfo()
         {
             // Helper function to determine if the OS is an Enterprise Multi-Session OS.
+            [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0046:Convert to conditional expression", Justification = "Enforcing this rule just makes a mess.")]
             static bool IsOperatingSystemEnterpriseMultiSessionOS(OS_PRODUCT_TYPE productType, string? editionId, string? productName)
             {
                 if (productType != OS_PRODUCT_TYPE.PRODUCT_DATACENTER_SERVER)
@@ -41,14 +42,14 @@ namespace PSADT.DeviceManagement
                 return true;
             }
 
-            NtDll.RtlGetVersion(out var osVersion);
-            var suiteMask = (SUITE_MASK)osVersion.wSuiteMask;
-            var productType = (PRODUCT_TYPE)osVersion.wProductType;
+            _ = NtDll.RtlGetVersion(out OSVERSIONINFOEXW osVersion);
+            SUITE_MASK suiteMask = (SUITE_MASK)osVersion.wSuiteMask;
+            PRODUCT_TYPE productType = (PRODUCT_TYPE)osVersion.wProductType;
             string? editionId = null;
             string? productName = null;
             int ubr = 0;
 
-            var windowsOS = (((ulong)osVersion.dwMajorVersion) << 48) | (((ulong)osVersion.dwMinorVersion) << 32) | (((ulong)osVersion.dwBuildNumber) << 16); var operatingSystem = WindowsOS.Unknown;
+            ulong windowsOS = (((ulong)osVersion.dwMajorVersion) << 48) | (((ulong)osVersion.dwMinorVersion) << 32) | (((ulong)osVersion.dwBuildNumber) << 16); WindowsOS operatingSystem = WindowsOS.Unknown;
             if (Enum.IsDefined(typeof(WindowsOS), windowsOS))
             {
                 operatingSystem = (WindowsOS)windowsOS;
@@ -78,8 +79,8 @@ namespace PSADT.DeviceManagement
                 }
             }
 
-            Kernel32.GetProductInfo(osVersion.dwMajorVersion, osVersion.dwMinorVersion, osVersion.wServicePackMajor, osVersion.wServicePackMinor, out OS_PRODUCT_TYPE edition);
-            Name = string.Format(((DescriptionAttribute[])typeof(WindowsOS).GetField(operatingSystem.ToString())!.GetCustomAttributes(typeof(DescriptionAttribute), false)).First().Description, editionId);
+            _ = Kernel32.GetProductInfo(osVersion.dwMajorVersion, osVersion.dwMinorVersion, osVersion.wServicePackMajor, osVersion.wServicePackMinor, out OS_PRODUCT_TYPE edition);
+            Name = string.Format(CultureInfo.InvariantCulture, ((DescriptionAttribute[])typeof(WindowsOS).GetField(operatingSystem.ToString())!.GetCustomAttributes(typeof(DescriptionAttribute), false))[0].Description, editionId);
             Version = new((int)osVersion.dwMajorVersion, (int)osVersion.dwMinorVersion, (int)osVersion.dwBuildNumber, ubr);
             Edition = edition.ToString();
             Architecture = RuntimeInformation.OSArchitecture;
@@ -94,61 +95,61 @@ namespace PSADT.DeviceManagement
         /// <summary>
         /// Display name of the operating system.
         /// </summary>
-        public readonly string Name;
+        public string Name { get; }
 
         /// <summary>
         /// Edition of the operating system.
         /// </summary>
-        public readonly string Edition;
+        public string Edition { get; }
 
         /// <summary>
         /// Version of the operating system.
         /// </summary>
-        public readonly Version Version;
+        public Version Version { get; }
 
         /// <summary>
         /// Release Id of the operating system.
         /// </summary>
-        public readonly string? ReleaseId;
+        public string? ReleaseId { get; }
 
         /// <summary>
         /// Release Id name of the operating system.
         /// </summary>
-        public readonly string? ReleaseIdName;
+        public string? ReleaseIdName { get; }
 
         /// <summary>
         /// Architecture of the operating system.
         /// </summary>
-        public readonly Architecture Architecture;
+        public Architecture Architecture { get; }
 
         /// <summary>
         /// Whether the operating system is 64-bit.
         /// </summary>
-        public readonly bool Is64BitOperatingSystem;
+        public bool Is64BitOperatingSystem { get; }
 
         /// <summary>
         /// Whether the operating system is a terminal server.
         /// </summary>
-        public readonly bool IsTerminalServer;
+        public bool IsTerminalServer { get; }
 
         /// <summary>
         /// Whether the operating system is a workstation capable of multiple sessions (AVD, etc).
         /// </summary>
-        public readonly bool IsWorkstationEnterpriseMultiSessionOS;
+        public bool IsWorkstationEnterpriseMultiSessionOS { get; }
 
         /// <summary>
         /// Whether the operating system is a workstation.
         /// </summary>
-        public readonly bool IsWorkstation;
+        public bool IsWorkstation { get; }
 
         /// <summary>
         /// Whether the operating system is a server.
         /// </summary>
-        public readonly bool IsServer;
+        public bool IsServer { get; }
 
         /// <summary>
         /// Whether the operating system is a domain controller.
         /// </summary>
-        public readonly bool IsDomainController;
+        public bool IsDomainController { get; }
     }
 }

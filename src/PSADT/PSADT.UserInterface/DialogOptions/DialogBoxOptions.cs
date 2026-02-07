@@ -15,46 +15,15 @@ namespace PSADT.UserInterface.DialogOptions
         /// This accepts a hashtable of parameters to ease construction on the PowerShell side of things.
         /// </summary>
         /// <param name="options"></param>
-        public DialogBoxOptions(Hashtable options)
+        public DialogBoxOptions(Hashtable options) : this(
+            (options ?? throw new ArgumentNullException(nameof(options)))["AppTitle"] is string appTitle ? appTitle : string.Empty,
+            options["MessageText"] is string messageText ? messageText : string.Empty,
+            options["DialogButtons"] is DialogBoxButtons dialogButtons ? dialogButtons : (DialogBoxButtons)uint.MaxValue,
+            options["DialogDefaultButton"] is DialogBoxDefaultButton dialogDefaultButton ? dialogDefaultButton : (DialogBoxDefaultButton)uint.MaxValue,
+            options["DialogIcon"] is DialogBoxIcon dialogIcon ? dialogIcon : null,
+            options["DialogTopMost"] is bool dialogTopMost && dialogTopMost,
+            options["DialogExpiryDuration"] is uint dialogExpiryDuration ? dialogExpiryDuration : null)
         {
-            // Nothing here is allowed to be null.
-            if (options["AppTitle"] is not string appTitle || string.IsNullOrWhiteSpace(appTitle))
-            {
-                throw new ArgumentNullException("AppTitle value is null or invalid.", (Exception?)null);
-            }
-            if (options["MessageText"] is not string messageText || string.IsNullOrWhiteSpace(messageText))
-            {
-                throw new ArgumentNullException("MessageText value is null or invalid.", (Exception?)null);
-            }
-            if (options["DialogButtons"] is not DialogBoxButtons dialogButtons)
-            {
-                throw new ArgumentNullException("DialogButtons value is null or invalid.", (Exception?)null);
-            }
-            if (options["DialogDefaultButton"] is not DialogBoxDefaultButton dialogDefaultButton)
-            {
-                throw new ArgumentNullException("DialogDefaultButton value is null or invalid.", (Exception?)null);
-            }
-            if (options["DialogIcon"] is not DialogBoxIcon dialogIcon)
-            {
-                throw new ArgumentNullException("DialogIcon value is null or invalid.", (Exception?)null);
-            }
-            if (options["DialogTopMost"] is not bool dialogTopMost)
-            {
-                throw new ArgumentNullException("DialogTopMost value is null or invalid.", (Exception?)null);
-            }
-            if (options["DialogExpiryDuration"] is not TimeSpan dialogExpiryDuration)
-            {
-                throw new ArgumentNullException("DialogExpiryDuration value is null or invalid.", (Exception?)null);
-            }
-
-            // The hashtable was correctly defined, assign the remaining values.
-            AppTitle = appTitle;
-            MessageText = messageText;
-            DialogButtons = dialogButtons;
-            DialogDefaultButton = dialogDefaultButton;
-            DialogIcon = dialogIcon;
-            DialogTopMost = dialogTopMost;
-            DialogExpiryDuration = dialogExpiryDuration;
         }
 
         /// <summary>
@@ -72,57 +41,78 @@ namespace PSADT.UserInterface.DialogOptions
         /// dialog box is topmost; otherwise, <see langword="false"/>.</param>
         /// <param name="dialogExpiryDuration">The duration after which the dialog box will automatically close if no user action is taken.</param>
         [JsonConstructor]
-        private DialogBoxOptions(string appTitle, string messageText, DialogBoxButtons dialogButtons, DialogBoxDefaultButton dialogDefaultButton, DialogBoxIcon dialogIcon, bool dialogTopMost, TimeSpan dialogExpiryDuration)
+        private DialogBoxOptions(string appTitle, string messageText, DialogBoxButtons dialogButtons, DialogBoxDefaultButton dialogDefaultButton, DialogBoxIcon? dialogIcon, bool dialogTopMost, uint? dialogExpiryDuration)
         {
+            if (string.IsNullOrWhiteSpace(appTitle))
+            {
+                throw new ArgumentNullException(nameof(appTitle), "AppTitle value is null or invalid.");
+            }
+            if (string.IsNullOrWhiteSpace(messageText))
+            {
+                throw new ArgumentNullException(nameof(messageText), "MessageText value is null or invalid.");
+            }
+            if ((uint)dialogButtons == uint.MaxValue)
+            {
+                throw new ArgumentNullException(nameof(dialogButtons), "DialogButtons value is null or invalid.");
+            }
+            if ((uint)dialogDefaultButton == uint.MaxValue)
+            {
+                throw new ArgumentNullException(nameof(dialogDefaultButton), "DialogDefaultButton value is null or invalid.");
+            }
+            if (dialogExpiryDuration == null)
+            {
+                throw new ArgumentNullException(nameof(dialogExpiryDuration), "DialogExpiryDuration value is null or invalid.");
+            }
+
             AppTitle = appTitle;
             MessageText = messageText;
             DialogButtons = dialogButtons;
             DialogDefaultButton = dialogDefaultButton;
             DialogIcon = dialogIcon;
             DialogTopMost = dialogTopMost;
-            DialogExpiryDuration = dialogExpiryDuration;
+            DialogExpiryDuration = dialogExpiryDuration.Value;
         }
 
         /// <summary>
         /// The title of the application or process being displayed in the dialog.
         /// </summary>
         [JsonProperty]
-        public readonly string AppTitle;
+        public string AppTitle { get; }
 
         /// <summary>
         /// Gets the text of the message.
         /// </summary>
         [JsonProperty]
-        public readonly string MessageText;
+        public string MessageText { get; }
 
         /// <summary>
         /// Gets the set of buttons to display in the message box dialog.
         /// </summary>
         [JsonProperty]
-        public readonly DialogBoxButtons DialogButtons;
+        public DialogBoxButtons DialogButtons { get; }
 
         /// <summary>
         /// Gets the default button that is selected in the dialog box when it is displayed.
         /// </summary>
         [JsonProperty]
-        public readonly DialogBoxDefaultButton DialogDefaultButton;
+        public DialogBoxDefaultButton DialogDefaultButton { get; }
 
         /// <summary>
         /// Gets the icon displayed in the dialog box.
         /// </summary>
         [JsonProperty]
-        public readonly DialogBoxIcon DialogIcon;
+        public DialogBoxIcon? DialogIcon { get; }
 
         /// <summary>
         /// Indicates whether the dialog should be displayed as a top-most window.
         /// </summary>
         [JsonProperty]
-        public readonly bool DialogTopMost;
+        public bool DialogTopMost { get; }
 
         /// <summary>
         /// The duration for which the dialog will be displayed before it automatically closes.
         /// </summary>
         [JsonProperty]
-        public readonly TimeSpan DialogExpiryDuration;
+        public uint DialogExpiryDuration { get; }
     }
 }

@@ -15,6 +15,8 @@ function Uninstall-ADTApplication
 
         Enumerates the registry for installed applications via Get-ADTApplication, matching the specified application name and uninstalls that application using its uninstall string, with the ability to specify additional uninstall parameters also.
 
+        The application will be uninstalled using its QuietUninstallString where possible. If it doesn't exist, is null, is invalid, or `-ForceUninstallString` is specified, the UninstallString will be used.
+
     .PARAMETER InstalledApplication
         Specifies the [PSADT.Types.InstalledApplication] object to remove. This parameter is typically used when piping Get-ADTApplication to this function.
 
@@ -35,6 +37,9 @@ function Uninstall-ADTApplication
 
     .PARAMETER FilterScript
         A script used to filter the results as they're processed.
+
+    .PARAMETER ForceUninstallString
+        Forcibly uses the UninstallString instead of QuietUninstallString.
 
     .PARAMETER ArgumentList
         Overrides the default MSI parameters specified in the config.psd1 file, or the parameters found in QuietUninstallString/UninstallString for EXE applications.
@@ -107,9 +112,11 @@ function Uninstall-ADTApplication
 
         More reading on how to create filterscripts https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/where-object?view=powershell-5.1#description
 
+        This function supports the -WhatIf and -Confirm parameters for testing changes before applying them.
+
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -121,7 +128,7 @@ function Uninstall-ADTApplication
     [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'IncludeUpdatesAndHotfixes', Justification = "This parameter is used within delegates that PSScriptAnalyzer has no visibility of. See https://github.com/PowerShell/PSScriptAnalyzer/issues/1472 for more details.")]
     [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'LoggingOptions', Justification = "This parameter is used/retrieved via Get-ADTBoundParametersAndDefaultValues, which is too advanced for PSScriptAnalyzer to comprehend.")]
     [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'LogFileName', Justification = "This parameter is used/retrieved via Get-ADTBoundParametersAndDefaultValues, which is too advanced for PSScriptAnalyzer to comprehend.")]
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     [OutputType([PSADT.ProcessManagement.ProcessResult])]
     param
     (
@@ -151,6 +158,9 @@ function Uninstall-ADTApplication
         [Parameter(Mandatory = $false, ParameterSetName = 'Search', Position = 0)]
         [ValidateNotNullOrEmpty()]
         [System.Management.Automation.ScriptBlock]$FilterScript,
+
+        [Parameter(Mandatory = $false)]
+        [System.Management.Automation.SwitchParameter]$ForceUninstallString,
 
         [Parameter(Mandatory = $false)]
         [ValidateNotNullOrEmpty()]
@@ -237,7 +247,6 @@ function Uninstall-ADTApplication
             ExitOnProcessFailure = $ExitOnProcessFailure
             ExpandEnvironmentVariables = $true
             WaitForMsiExec = $true
-            CreateNoWindow = $true
             PassThru = $PassThru
         }
         if ($PSBoundParameters.ContainsKey('SuccessExitCodes'))
@@ -273,7 +282,11 @@ function Uninstall-ADTApplication
                         Write-ADTLogEntry -Message "No ProductCode found for MSI application [$($removeApplication.DisplayName) $($removeApplication.DisplayVersion)]. Skipping removal."
                         continue
                     }
-                    Write-ADTLogEntry -Message "Removing MSI application [$($removeApplication.DisplayName) $($removeApplication.DisplayVersion)] with ProductCode [$($removeApplication.ProductCode.ToString('B'))]."
+                    Write-ADTLogEntry -Message "Removing MSI application [$($removeApplication.DisplayName)$(if ($removeApplication.DisplayVersion -and !$removeApplication.DisplayName.Contains($removeApplication.DisplayVersion)) { " $($removeApplication.DisplayVersion)" })] with ProductCode [$($removeApplication.ProductCode.ToString('B'))]."
+                    if (!$PSCmdlet.ShouldProcess("MSI Application [$($removeApplication.DisplayName)]", 'Uninstall'))
+                    {
+                        continue
+                    }
                     try
                     {
                         if ($sampParams.ContainsKey('FilePath'))
@@ -290,7 +303,7 @@ function Uninstall-ADTApplication
                 else
                 {
                     # Set up the FilePath to use for the uninstall.
-                    $uninstallProperty = if (![System.String]::IsNullOrWhiteSpace($removeApplication.QuietUninstallStringFilePath))
+                    $uninstallProperty = if (![System.String]::IsNullOrWhiteSpace($removeApplication.QuietUninstallStringFilePath) -and !$ForceUninstallString)
                     {
                         "QuietUninstallString"
                     }
@@ -300,7 +313,7 @@ function Uninstall-ADTApplication
                     }
                     else
                     {
-                        Write-ADTLogEntry -Message "No UninstallString found for EXE application [$($removeApplication.DisplayName) $($removeApplication.DisplayVersion)]. Skipping removal."
+                        Write-ADTLogEntry -Message "No UninstallString found for EXE application [$($removeApplication.DisplayName)$(if ($removeApplication.DisplayVersion -and !$removeApplication.DisplayName.Contains($removeApplication.DisplayVersion)) { " $($removeApplication.DisplayVersion)" })]. Skipping removal."
                         continue
                     }
                     $sapParams.FilePath = $removeApplication."$($uninstallProperty)FilePath"
@@ -343,10 +356,14 @@ function Uninstall-ADTApplication
                         }
                     }
 
-                    Write-ADTLogEntry -Message "Removing EXE application [$($removeApplication.DisplayName) $($removeApplication.DisplayVersion)]."
+                    Write-ADTLogEntry -Message "Removing EXE application [$($removeApplication.DisplayName)$(if ($removeApplication.DisplayVersion -and !$removeApplication.DisplayName.Contains($removeApplication.DisplayVersion)) { " $($removeApplication.DisplayVersion)" })]."
+                    if (!$PSCmdlet.ShouldProcess("EXE Application [$($removeApplication.DisplayName)]", 'Uninstall'))
+                    {
+                        continue
+                    }
                     try
                     {
-                        Start-ADTProcess @sapParams -ErrorAction $OriginalErrorAction
+                        Start-ADTProcess @sapParams -CreateNoWindow:(![PSADT.FileSystem.ExecutableInfo]::Get($sapParams.FilePath).Subsystem.Equals([PSADT.LibraryInterfaces.IMAGE_SUBSYSTEM]::IMAGE_SUBSYSTEM_WINDOWS_GUI)) -ErrorAction $OriginalErrorAction
                     }
                     catch
                     {

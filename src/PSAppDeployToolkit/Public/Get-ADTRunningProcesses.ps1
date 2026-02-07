@@ -36,7 +36,7 @@ function Get-ADTRunningProcesses
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -44,7 +44,7 @@ function Get-ADTRunningProcesses
     #>
 
     [CmdletBinding()]
-    [OutputType([System.Collections.Generic.IReadOnlyList[PSADT.ProcessManagement.RunningProcess]])]
+    [OutputType([System.Collections.Generic.IReadOnlyList[PSADT.ProcessManagement.RunningProcessInfo]])]
     param
     (
         [Parameter(Mandatory = $true)]
@@ -54,7 +54,7 @@ function Get-ADTRunningProcesses
 
     # Process provided process objects and return any output.
     Write-ADTLogEntry -Message "Checking for running processes: ['$([System.String]::Join("', '", $ProcessObjects.Name))']"
-    if (!($runningProcesses = [PSADT.ProcessManagement.ProcessUtilities]::GetRunningProcesses($ProcessObjects)))
+    if (!($runningProcesses = [PSADT.ProcessManagement.RunningProcessInfo]::Get($ProcessObjects)))
     {
         Write-ADTLogEntry -Message 'Specified processes are not running.'
         return

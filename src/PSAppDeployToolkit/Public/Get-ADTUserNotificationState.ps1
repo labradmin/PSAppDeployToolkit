@@ -33,7 +33,7 @@ function Get-ADTUserNotificationState
 
         Tags: psadt<br />
         Website: https://psappdeploytoolkit.com<br />
-        Copyright: (C) 2025 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
+        Copyright: (C) 2026 PSAppDeployToolkit Team (Sean Lillis, Dan Cunningham, Muhammad Mashwani, Mitch Richters, Dan Gough).<br />
         License: https://opensource.org/license/lgpl-3-0
 
     .LINK
@@ -41,6 +41,7 @@ function Get-ADTUserNotificationState
     #>
 
     [CmdletBinding()]
+    [OutputType([PSADT.LibraryInterfaces.QUERY_USER_NOTIFICATION_STATE])]
     param
     (
     )
@@ -65,7 +66,7 @@ function Get-ADTUserNotificationState
             try
             {
                 Write-ADTLogEntry -Message "Detected user notification state [$(($UserNotificationState = Invoke-ADTClientServerOperation -GetUserNotificationState -User $runAsActiveUser))]."
-                return $UserNotificationState
+                return [PSADT.LibraryInterfaces.QUERY_USER_NOTIFICATION_STATE]$UserNotificationState
             }
             catch
             {
